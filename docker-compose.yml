@@ -2,7 +2,7 @@ services:
   api:
     build: .
     container_name: gex-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn source.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     volumes:
@@ -25,7 +25,7 @@ services:
   worker:
     build: .
     container_name: gex-worker
-    command: python -m app.worker
+    command: python -m source.workers.lead_worker
     volumes:
       - .:/app
     environment:
@@ -46,7 +46,7 @@ services:
   sms-distributor:
     build: .
     container_name: gex-sms-distributor
-    command: python -m app.sms_distributor
+    command: python -m source.workers.sms_distributor
     volumes:
       - .:/app
     environment:

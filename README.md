@@ -14,6 +14,20 @@ A ideia é simular uma esteira de integração que recebe webhooks de gateways, 
 - Pytest
 - Ruff
 
+## Estrutura
+
+Código da aplicação:
+
+    source/
+
+Entrada HTTP principal:
+
+    source/main.py
+
+Workers:
+
+    source/workers/
+
 ## Como rodar
 
 Subir tudo:

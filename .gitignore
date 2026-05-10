@@ -15,3 +15,5 @@ repomix.config.json
 .repomixignore
 
 mysql_data/
+
+.idea/

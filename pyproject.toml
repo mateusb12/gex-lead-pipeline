@@ -30,5 +30,5 @@ target-version = "py312"
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["source*"]
 exclude = ["sql*", "scripts*", "tests*", "docs*"]
