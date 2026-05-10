@@ -56,3 +56,29 @@ def insert_raw_payload(
         result = connection.execute(query, params)
 
     return int(result.lastrowid)
+
+
+def update_raw_payload_result(
+    *,
+    raw_payload_id: int,
+    body_decrypted: Any | None = None,
+    error_reason: str | None = None,
+) -> None:
+    query = text(
+        """
+        UPDATE raw_payloads
+        SET
+            body_decrypted = :body_decrypted,
+            error_reason = :error_reason
+        WHERE id = :raw_payload_id
+        """
+    )
+
+    params = {
+        "raw_payload_id": raw_payload_id,
+        "body_decrypted": _to_json_param(body_decrypted),
+        "error_reason": error_reason,
+    }
+
+    with get_engine().begin() as connection:
+        connection.execute(query, params)

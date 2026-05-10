@@ -1,97 +1,387 @@
 # GEX Lead Pipeline
 
-Solução para o teste técnico Backend PL da GEX.
+Esse projeto é uma solução para o teste técnico Backend PL da GEX.
 
-A ideia é simular uma esteira de integração que recebe webhooks de gateways, valida payloads, persiste dados brutos, publica eventos em filas, processa leads e distribui para canais.
+A ideia do projeto foi construir uma esteira simples, mas rastreável: receber webhooks de gateways, persistir o payload bruto, validar o formato de entrada, preparar o roteamento para filas e deixar a base pronta para processamento assíncrono de leads.
 
-## Stack
+O foco inicial foi priorizar o receiver, a persistência do bruto e a organização do fluxo, porque esses pontos são a base para decrypt, idempotência, DLQ, workers e auditoria SQL.
+
+## Stack utilizada
 
 - Python
 - FastAPI
+- Pydantic
 - MySQL
 - RabbitMQ
+- SQLAlchemy Core
 - Docker Compose
 - Pytest
 - Ruff
 
-## Estrutura
+---
 
-Código da aplicação:
+## Funcionalidades atuais
 
-    source/
+- Receber webhooks em `POST /webhooks/{gateway}`
+- Aceitar gateways `lous` e `grummer`
+- Persistir todo payload recebido em `raw_payloads`
+- Gerar `correlation_id` por request
+- Validar payload aberto do gateway `lous`
+- Validar envelope criptografado do gateway `grummer`
+- Separar payload válido, inválido e criptografado em esteiras diferentes
+- Marcar erros de schema em `raw_payloads.error_reason`
+- Simular decrypt do `grummer` com stub temporário
+- Listar payloads recebidos por uma rota de debug
+- Subir API, MySQL, RabbitMQ e workers via Docker Compose
+- Rodar testes automatizados do receiver e da conexão com banco
 
-Entrada HTTP principal:
+---
 
-    source/main.py
+## Estrutura do projeto
 
-Arquitetura principal:
+```text
+source/
+  main.py
 
-    source/features/
-    source/shared/
+  features/
+    webhooks/
+      router.py
+      service.py
+      repository.py
+      schemas.py
 
-Features:
+    debug/
+      router.py
+      service.py
+      repository.py
 
-    source/features/webhooks/
-    source/features/leads/
-    source/features/distribution/
+    leads/
+      worker.py
 
-Compartilhado:
+    distribution/
+      sms_worker.py
 
-    source/shared/
+  shared/
+    config.py
+    db.py
 
-## Como rodar
+sql/
+  001_create_tables.sql
+  002_indexes.sql
+  audit_queries.sql
 
-Subir tudo:
+tests/
+```
 
-    docker compose up --build
+A organização foi feita por feature porque os arquivos relacionados ao mesmo fluxo ficam próximos.
 
-API:
+Se o problema está no recebimento de webhooks, o caminho natural fica em `features/webhooks`.  
+Se o problema está no processamento futuro de leads, fica em `features/leads`.  
+Se o problema está na distribuição SMS, fica em `features/distribution`.
 
-    http://localhost:8000
+O que é compartilhado, como configuração e conexão com banco, fica em `shared`.
 
-Health check:
+---
 
-    curl http://localhost:8000/health
+## Como executar
 
-Webhook stub:
+### Subir a aplicação
 
-    curl -X POST http://localhost:8000/webhooks/lous \
-      -H "Content-Type: application/json" \
-      -d '{"hello":"world"}'
+Primeira execução, ou depois de mudar dependências:
 
-RabbitMQ Management:
+```bash
+docker compose up -d --build
+```
 
-    http://localhost:15672
+Uso normal durante desenvolvimento:
 
-Credenciais RabbitMQ:
+```bash
+docker compose up -d
+```
 
-    user: guest
-    password: guest
+A API fica disponível em:
+
+```text
+http://localhost:8000
+```
+
+---
+
+## Endpoints principais
+
+### Health check
+
+```http
+GET /health
+```
+
+Exemplo:
+
+```bash
+curl http://localhost:8000/health
+```
+
+---
+
+### Receber webhook do gateway Lous
+
+```http
+POST /webhooks/lous
+```
+
+Exemplo simples:
+
+```bash
+curl -X POST http://localhost:8000/webhooks/lous \
+  -H "Content-Type: application/json" \
+  -d '{"hello":"world"}'
+```
+
+Esse payload é salvo em `raw_payloads`, mas cai como `schema_failed`, porque ainda não possui os campos esperados de uma venda.
+
+Exemplo de payload válido:
+
+```bash
+curl -X POST http://localhost:8000/webhooks/lous \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transaction_id": "ORD-TEST-001",
+    "transaction_time": "2026-05-10T17:49:30.715553+00:00",
+    "event": "order.approved",
+    "customer": {
+      "email": "test@example.com",
+      "first_name": "Test",
+      "last_name": "Customer",
+      "phone": "+18005551234",
+      "country": "US"
+    },
+    "product": {
+      "id": "PROD-001",
+      "name": "Fit Burn",
+      "niche": "weight_loss",
+      "quantity": 1
+    },
+    "payment": {
+      "status": "approved",
+      "amount_usd": 99.90,
+      "method": "credit_card"
+    }
+  }'
+```
+
+---
+
+### Receber webhook do gateway Grummer
+
+```http
+POST /webhooks/grummer
+```
+
+Exemplo:
+
+```bash
+curl -X POST http://localhost:8000/webhooks/grummer \
+  -H "Content-Type: application/json" \
+  -H "X-GR-Encrypted: true" \
+  -d '{
+    "iv": "base64-iv-placeholder",
+    "ciphertext": "base64-ciphertext-placeholder"
+  }'
+```
+
+Hoje o decrypt real ainda não foi implementado. O projeto valida o envelope `iv/ciphertext`, salva o payload bruto e registra um `body_decrypted` temporário indicando que a etapa de decrypt ainda está stubada.
+
+---
+
+### Debug de payloads recebidos
+
+```http
+GET /debug/raw-payloads?limit=10
+```
+
+Exemplo:
+
+```bash
+curl http://localhost:8000/debug/raw-payloads?limit=10
+```
+
+Essa rota existe apenas para facilitar desenvolvimento, Postman e Loom.  
+Ela ajuda a visualizar se os webhooks foram persistidos corretamente em `raw_payloads`.
+
+---
+
+## RabbitMQ Management
+
+```text
+http://localhost:15672
+```
+
+Credenciais locais:
+
+```text
+user: guest
+password: guest
+```
+
+---
 
 ## Testes
 
 Instalar dependências locais:
 
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -e ".[dev]"
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
 
 Rodar testes:
 
-    pytest
+```bash
+pytest
+```
 
 Rodar lint:
 
-    ruff check .
+```bash
+ruff check .
+```
+
+---
+
+## Decisões técnicas
+
+### Python e FastAPI
+
+Escolhi Python por produtividade e clareza para lidar com JSON, validação, scripts auxiliares e integração com filas.
+
+Usei FastAPI porque ele é leve, simples de subir localmente e combina bem com Pydantic para validação de payloads. Para este teste, a prioridade é deixar o fluxo fácil de entender e defender, não criar uma estrutura pesada demais antes da regra principal estar funcionando.
+
+---
+
+### Organização por feature
+
+Escolhi organizar por feature porque o fluxo do problema é naturalmente dividido por áreas.
+
+O receiver fica em `features/webhooks`, o processamento futuro de leads fica em `features/leads` e o distribuidor SMS fica em `features/distribution`.
+
+Isso evita espalhar arquivos relacionados em pastas genéricas como `routers`, `services`, `repositories` e `schemas` no projeto inteiro. Quando algo quebrar em webhook, os arquivos principais daquele fluxo estão próximos.
+
+---
+
+### Router, service e repository
+
+A separação principal ficou assim:
+
+- o router lida com HTTP
+- o service decide a esteira de processamento
+- o repository concentra o SQL
+- o shared/db cria a conexão com o banco
+
+O router não deveria carregar regra de negócio demais. Ele recebe a request, valida o gateway no path, lê o JSON e chama o service.
+
+O service decide se o payload é `lous`, `grummer`, schema válido, schema inválido ou decrypt stubado.
+
+O repository executa os comandos SQL necessários para persistir ou atualizar `raw_payloads`.
+
+---
+
+### SQL explícito em vez de ORM completo
+
+Não usei ORM completo para modelar as tabelas da aplicação.
+
+Neste desafio, o banco é uma parte importante da avaliação: modelagem, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, preferi manter o SQL explícito e usar SQLAlchemy Core apenas como camada de conexão e execução.
+
+A ideia é evitar que o acesso a dados vire uma caixa-preta. O SQL fica visível, previsível e mais fácil de defender na entrevista.
+
+---
+
+### Persistência do payload bruto
+
+A primeira regra implementada foi salvar o payload bruto em `raw_payloads`.
+
+Essa decisão foi proposital porque o payload bruto é a base de auditoria do sistema. Mesmo se o decrypt falhar, o schema estiver inválido ou o processamento posterior quebrar, ainda existe um registro do que chegou, quando chegou, de qual gateway veio e qual `correlation_id` foi gerado.
+
+Isso também ajuda no cenário de incidente descrito no desafio, porque permite diferenciar se o gateway nunca enviou, se o webhook chegou mas falhou depois, ou se o problema ocorreu em uma etapa posterior da esteira.
+
+---
+
+### Validação por schema
+
+Usei Pydantic para validar os formatos principais de entrada.
+
+Hoje existem dois formatos importantes:
+
+- `lous`: payload de venda aberto em JSON
+- `grummer`: envelope criptografado contendo `iv` e `ciphertext`
+
+O payload de venda é validado com um schema próprio. O envelope criptografado do `grummer` também é validado antes da futura etapa de decrypt.
+
+A validação ainda não é a normalização final de negócio. Ela apenas confirma se a estrutura mínima esperada chegou. Normalizações como e-mail lowercase, telefone em E.164 e nome padrão serão implementadas em uma etapa posterior.
+
+---
+
+### Roteamento das esteiras
+
+O endpoint público continua sendo o mesmo pedido no desafio:
+
+```text
+POST /webhooks/{gateway}
+```
+
+Internamente, o service separa as esteiras:
+
+- `lous` válido e aprovado segue para a futura fila `lead.received`
+- `lous` inválido é marcado como `schema_failed`
+- `grummer` com envelope válido segue para a futura etapa de decrypt real
+- `grummer` com envelope inválido é marcado como `schema_failed`
+
+Neste momento, a publicação em RabbitMQ ainda não foi implementada. A resposta já indica qual seria a próxima esteira, mas o envio real para fila fica para a próxima etapa.
+
+---
+
+### Rota de debug
+
+Adicionei `GET /debug/raw-payloads` para facilitar inspeção local.
+
+Essa rota não representa uma API de produto. Ela existe para desenvolvimento, Postman e Loom, permitindo mostrar rapidamente que o payload recebido foi salvo em `raw_payloads`.
+
+Em produção, esse tipo de rota deveria ser protegido, removido ou substituído por uma interface interna com autenticação.
+
+---
+
+### RabbitMQ e workers
+
+O Docker Compose já sobe RabbitMQ, um worker de leads e um worker de distribuição SMS.
+
+Por enquanto, os workers ainda são stubs. Eles existem para deixar a topologia local parecida com o fluxo final do teste, mas a regra de consumo, retry, DLQ e distribuição real será implementada nas próximas etapas.
+
+---
 
 ## Status atual
 
-Primeiro esqueleto do projeto:
+Implementado:
 
 - API FastAPI
 - MySQL no Docker
 - RabbitMQ no Docker
-- Worker stub
-- SMS distributor stub
-- SQL inicial
-- Teste mínimo de health check
+- Estrutura por feature
+- Conexão com banco via SQLAlchemy Core
+- Persistência em `raw_payloads`
+- Validação inicial de schemas
+- Roteamento inicial de esteiras
+- Debug de payloads recebidos
+- Workers stub com reload local
+- Testes automatizados básicos
+
+Ainda falta:
+
+- decrypt AES-256-CBC real do Grummer
+- normalização de e-mail, telefone e nome
+- idempotência por `transaction_id + event`
+- publicação na fila `lead.received`
+- consumer real de leads
+- retry e DLQ
+- distribuidor SMS real com webhook.site
+- queries de auditoria em `audit_queries.sql`
+- documentação conceitual do incidente e decisões de arquitetura

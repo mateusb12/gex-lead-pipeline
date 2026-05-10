@@ -14,15 +14,14 @@ def test_health_check():
 
 
 def test_webhook_lous_stub(monkeypatch):
-
     def fake_receive_webhook_service(*, gateway, headers, body):
         return {
-            "status": "received",
+            "status": "validated",
+            "pipeline": "lead.received",
             "gateway": gateway,
             "correlation_id": "test-correlation-id",
             "raw_payload_id": 123,
-            "stub": True,
-            "body_keys": list(body.keys()),
+            "should_publish_to_lead_queue": True,
         }
 
     monkeypatch.setattr(webhooks_router, "receive_webhook_service", fake_receive_webhook_service)
@@ -31,10 +30,10 @@ def test_webhook_lous_stub(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {
-        "status": "received",
+        "status": "validated",
+        "pipeline": "lead.received",
         "gateway": "lous",
         "correlation_id": "test-correlation-id",
         "raw_payload_id": 123,
-        "stub": True,
-        "body_keys": ["hello"],
+        "should_publish_to_lead_queue": True,
     }
