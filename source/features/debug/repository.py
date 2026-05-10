@@ -1,28 +1,27 @@
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select
 
 from source.shared.db import get_engine
+from source.shared.tables import raw_payloads
 
 
 def list_raw_payloads(limit: int = 10) -> list[dict[str, Any]]:
-    query = text(
-        """
-        SELECT
-            id,
-            correlation_id,
-            gateway,
-            received_at,
-            headers,
-            body_original,
-            body_decrypted,
-            error_reason
-        FROM raw_payloads
-        ORDER BY id DESC
-        LIMIT :limit
-        """
+    statement = (
+        select(
+            raw_payloads.c.id,
+            raw_payloads.c.correlation_id,
+            raw_payloads.c.gateway,
+            raw_payloads.c.received_at,
+            raw_payloads.c.headers,
+            raw_payloads.c.body_original,
+            raw_payloads.c.body_decrypted,
+            raw_payloads.c.error_reason,
+        )
+        .order_by(raw_payloads.c.id.desc())
+        .limit(limit)
     )
 
     with get_engine().connect() as connection:
-        result = connection.execute(query, {"limit": limit})
-        return [dict(row) for row in result.mappings()]
+        result = connection.execute(statement)
+        return [dict(row) for row in result.mappings().all()]

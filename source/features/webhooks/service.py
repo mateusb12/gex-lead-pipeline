@@ -79,7 +79,11 @@ def _process_grummer(*, correlation_id: str, raw_payload_id: int, body: Any) -> 
         }
 
     decrypted_stub = _decrypt_grummer_payload_stub(envelope)
-    update_raw_payload_result(raw_payload_id=raw_payload_id, body_decrypted=decrypted_stub, error_reason="decrypt_stubbed")
+    update_raw_payload_result(
+        raw_payload_id=raw_payload_id,
+        body_decrypted=decrypted_stub,
+        error_reason="decrypt_stubbed",
+    )
 
     return {
         "status": "decrypt_stubbed",

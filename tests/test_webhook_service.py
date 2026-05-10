@@ -18,8 +18,8 @@ VALID_LOUS_BODY = {
         "id": "PROD-001",
         "name": "Fit Burn",
         "niche": "weight_loss",
-        "quantity": 1,
     },
+    "quantity": 1,
     "payment": {
         "status": "approved",
         "amount_usd": 99.90,

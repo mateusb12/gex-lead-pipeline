@@ -1,10 +1,15 @@
-from fastapi.testclient import TestClient
+import asyncio
+
+import httpx
 
 from source.features.debug import router as debug_router
 from source.main import app
 
 
-client = TestClient(app)
+async def _get(path: str) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.get(path)
 
 
 def test_list_raw_payloads(monkeypatch):
@@ -27,7 +32,7 @@ def test_list_raw_payloads(monkeypatch):
 
     monkeypatch.setattr(debug_router, "get_raw_payloads", fake_get_raw_payloads)
 
-    response = client.get("/debug/raw-payloads?limit=5")
+    response = asyncio.run(_get("/debug/raw-payloads?limit=5"))
 
     assert response.status_code == 200
     assert response.json()["count"] == 1

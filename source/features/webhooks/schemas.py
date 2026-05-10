@@ -22,7 +22,6 @@ class ProductPayload(BaseModel):
     id: str
     name: str
     niche: str
-    quantity: int
 
 
 class PaymentPayload(BaseModel):
@@ -37,4 +36,5 @@ class SalesEventPayload(BaseModel):
     event: str
     customer: CustomerPayload
     product: ProductPayload
+    quantity: int
     payment: PaymentPayload
