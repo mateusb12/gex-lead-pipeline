@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+.env
+.env.*
+.DS_Store
+
+*.egg-info/
+.eggs/
+
+codebase.md
+repomix.config.json
+.repomixignore
+
+mysql_data/

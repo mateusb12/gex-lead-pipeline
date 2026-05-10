@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.git/
+.env
+.env.*
+*.egg-info/
+.eggs/
+codebase.md
+repomix.config.json
+.repomixignore
+mysql_data/
