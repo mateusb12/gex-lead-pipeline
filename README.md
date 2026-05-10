@@ -64,6 +64,7 @@ source/
   shared/
     config.py
     db.py
+    tables.py
 
 sql/
   001_create_tables.sql
@@ -161,6 +162,7 @@ curl -X POST http://localhost:8000/webhooks/lous \
       "niche": "weight_loss",
       "quantity": 1
     },
+    "quantity": 1,
     "payment": {
       "status": "approved",
       "amount_usd": 99.90,
@@ -275,24 +277,38 @@ A separação principal ficou assim:
 
 - o router lida com HTTP
 - o service decide a esteira de processamento
-- o repository concentra o SQL
+- o repository concentra o acesso a dados com SQLAlchemy Core
 - o shared/db cria a conexão com o banco
 
 O router não deveria carregar regra de negócio demais. Ele recebe a request, valida o gateway no path, lê o JSON e chama o service.
 
 O service decide se o payload é `lous`, `grummer`, schema válido, schema inválido ou decrypt stubado.
 
-O repository executa os comandos SQL necessários para persistir ou atualizar `raw_payloads`.
+O repository concentra as operações de banco usando SQLAlchemy Core, evitando SQL string espalhada na aplicação para operações comuns de insert, select e update.
 
 ---
 
-### SQL explícito em vez de ORM completo
+### SQLAlchemy Core sem ORM completo
 
-Não usei ORM completo para modelar as tabelas da aplicação.
+Optei por usar SQLAlchemy Core no código da aplicação, sem migrar para ORM completo.
 
-Neste desafio, o banco é uma parte importante da avaliação: modelagem, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, preferi manter o SQL explícito e usar SQLAlchemy Core apenas como camada de conexão e execução.
+A motivação foi equilibrar dois pontos: 
+- eu não queria espalhar SQL string manual pelos repositories
+- mas, ao mesmo tempo, eu também não queria esconder demais o comportamento do banco atrás de uma camada de ORM mais abstrata do que o problema pede.
 
-A ideia é evitar que o acesso a dados vire uma caixa-preta. O SQL fica visível, previsível e mais fácil de defender na entrevista.
+Neste desafio, o banco é parte importante da avaliação: modelagem, constraints, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, faz sentido manter as operações de persistência próximas do modelo relacional e fáceis de inspecionar.
+
+Na aplicação, as operações comuns usam `Table`, `insert()`, `select()` e `update()` do SQLAlchemy Core. Isso deixa o código mais refatorável do que strings SQL soltas, sem transformar o fluxo em uma camada de entidades ORM que não agrega muito neste momento.
+
+Os scripts SQL continuam separados em `sql/`, porque fazem parte da entrega do teste e precisam ser avaliados diretamente: criação de tabelas, índices, queries de auditoria e, se aplicável, stored procedure.
+
+A regra prática adotada foi:
+
+- SQLAlchemy Core para código de aplicação
+- SQL puro nos arquivos `sql/`
+- `text()` apenas quando fizer sentido, como no ping simples de conexão com o banco
+
+Essa escolha mantém o acesso ao banco explícito, mas evita que os repositories virem um conjunto de strings SQL difíceis de refatorar.
 
 ---
 
