@@ -79,7 +79,7 @@ def test_receive_webhook_routes_lous_invalid_payload_to_schema_failed(monkeypatc
     assert captured_update["error_reason"].startswith("schema_failed")
 
 
-def test_receive_webhook_routes_grummer_envelope_to_decrypt_stub(monkeypatch):
+def test_receive_webhook_routes_grummer_envelope_to_validated_payload(monkeypatch):
     captured_update = {}
 
     monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 789)
@@ -88,6 +88,7 @@ def test_receive_webhook_routes_grummer_envelope_to_decrypt_stub(monkeypatch):
         captured_update.update(kwargs)
 
     monkeypatch.setattr(service, "update_raw_payload_result", fake_update_raw_payload_result)
+    monkeypatch.setattr(service, "decrypt_grummer_payload", lambda **kwargs: VALID_LOUS_BODY)
 
     response = service.receive_webhook(
         gateway="grummer",
@@ -95,11 +96,12 @@ def test_receive_webhook_routes_grummer_envelope_to_decrypt_stub(monkeypatch):
         body={"iv": "abc", "ciphertext": "def"},
     )
 
-    assert response["status"] == "decrypt_stubbed"
-    assert response["pipeline"] == "grummer_encrypted_pipeline"
+    assert response["status"] == "validated"
+    assert response["pipeline"] == "lead.received"
+    assert response["gateway"] == "grummer"
     assert response["raw_payload_id"] == 789
-    assert captured_update["body_decrypted"]["stub"] is True
-    assert captured_update["error_reason"] == "decrypt_stubbed"
+    assert response["transaction_id"] == VALID_LOUS_BODY["transaction_id"]
+    assert captured_update["body_decrypted"] == VALID_LOUS_BODY
 
 
 def test_receive_webhook_routes_invalid_grummer_envelope_to_schema_failed(monkeypatch):

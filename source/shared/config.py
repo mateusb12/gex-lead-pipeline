@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     rabbitmq_host: str = "localhost"
     rabbitmq_port: int = 5672
 
+    grummer_secret_hex: str | None = None
+
     @property
     def database_url(self) -> str:
         host = f"{self.mysql_host}:{self.mysql_port}"
