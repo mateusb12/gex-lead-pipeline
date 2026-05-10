@@ -9,6 +9,7 @@ services:
       - .:/app
     environment:
       APP_ENV: local
+      PYTHONDONTWRITEBYTECODE: 1
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: gex
@@ -25,11 +26,12 @@ services:
   worker:
     build: .
     container_name: gex-worker
-    command: python -m source.workers.lead_worker
+    command: watchfiles "python -m source.features.leads.worker" source
     volumes:
       - .:/app
     environment:
       APP_ENV: local
+      PYTHONDONTWRITEBYTECODE: 1
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: gex
@@ -46,11 +48,12 @@ services:
   sms-distributor:
     build: .
     container_name: gex-sms-distributor
-    command: python -m source.workers.sms_distributor
+    command: watchfiles "python -m source.features.distribution.sms_worker" source
     volumes:
       - .:/app
     environment:
       APP_ENV: local
+      PYTHONDONTWRITEBYTECODE: 1
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: gex

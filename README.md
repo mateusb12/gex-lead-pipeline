@@ -24,9 +24,20 @@ Entrada HTTP principal:
 
     source/main.py
 
-Workers:
+Arquitetura principal:
 
-    source/workers/
+    source/features/
+    source/shared/
+
+Features:
+
+    source/features/webhooks/
+    source/features/leads/
+    source/features/distribution/
+
+Compartilhado:
+
+    source/shared/
 
 ## Como rodar
 
