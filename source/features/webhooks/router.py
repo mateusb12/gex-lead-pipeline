@@ -1,6 +1,6 @@
-from uuid import uuid4
-
 from fastapi import APIRouter, HTTPException, Request
+
+from source.features.webhooks.service import receive_webhook as receive_webhook_service
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -11,12 +11,5 @@ async def receive_webhook(gateway: str, request: Request):
         raise HTTPException(status_code=404, detail="Unsupported gateway")
 
     body = await request.json()
-    correlation_id = str(uuid4())
 
-    return {
-        "status": "received",
-        "gateway": gateway,
-        "correlation_id": correlation_id,
-        "stub": True,
-        "body_keys": list(body.keys()) if isinstance(body, dict) else [],
-    }
+    return receive_webhook_service(gateway=gateway, headers=dict(request.headers), body=body)

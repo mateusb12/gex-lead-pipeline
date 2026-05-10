@@ -15,10 +15,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return (
-            f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
-            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
-        )
+        host = f"{self.mysql_host}:{self.mysql_port}"
+        return f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}@{host}/{self.mysql_database}"
 
 
 settings = Settings()
