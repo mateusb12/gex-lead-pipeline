@@ -2,7 +2,7 @@
 
 Esse projeto é uma solução para o teste técnico Backend PL da GEX.
 
-A ideia do projeto foi construir uma esteira de integração para webhooks de gateways: receber eventos, persistir o payload bruto, validar schemas, tratar payloads criptografados, garantir idempotência, publicar em filas e distribuir leads para canais downstream.
+A ideia do projeto foi construir uma esteira de integração para webhooks de gateways: receber eventos, persistir o payload bruto, validar schemas, tratar payloads criptografados, preparar o roteamento para filas e deixar a base pronta para processamento assíncrono de leads.
 
 A implementação prioriza rastreabilidade e segurança operacional. Cada payload recebido fica registrado em `raw_payloads`, cada request recebe um `correlation_id`, os gateways `lous` e `grummer` são tratados conforme seus formatos, e os fluxos de sucesso, descarte, erro de schema, falha de decrypt e distribuição são separados para facilitar auditoria, reprocessamento e investigação de incidentes.
 
@@ -32,6 +32,8 @@ A implementação prioriza rastreabilidade e segurança operacional. Cada payloa
 - Marcar erros de schema em `raw_payloads.error_reason`
 - Simular decrypt do `grummer` com stub temporário
 - Listar payloads recebidos por uma rota de debug
+- Rodar replay local dos payloads do desafio via rota de benchmark em debug
+- Limpar automaticamente cargas anteriores do benchmark para evitar lixo no banco local
 - Subir API, MySQL, RabbitMQ e workers via Docker Compose
 - Rodar testes automatizados do receiver e da conexão com banco
 
@@ -54,6 +56,7 @@ source/
       router.py
       service.py
       repository.py
+      benchmark.py
 
     leads/
       worker.py
@@ -72,6 +75,9 @@ sql/
   audit_queries.sql
 
 tests/
+
+assets/
+  .gitkeep
 ```
 
 A organização foi feita por feature porque os arquivos relacionados ao mesmo fluxo ficam próximos.
@@ -80,7 +86,27 @@ Se o problema está no recebimento de webhooks, o caminho natural fica em `featu
 Se o problema está no processamento futuro de leads, fica em `features/leads`.  
 Se o problema está na distribuição SMS, fica em `features/distribution`.
 
-O que é compartilhado, como configuração e conexão com banco, fica em `shared`.
+O que é compartilhado, como configuração, conexão com banco e tabelas do SQLAlchemy Core, fica em `shared`.
+
+---
+
+## Arquivos locais do desafio
+
+Os arquivos anexos do teste técnico não são versionados no repositório por serem materiais do processo seletivo.
+
+Para rodar a carga local com os dados reais do desafio, coloque os arquivos recebidos em `assets/`:
+
+```text
+assets/
+  webhook_payloads.json
+  grummer_secret.txt
+  expected_summary.xlsx
+  expected_summary_meta.json
+```
+
+Esses arquivos são usados apenas como entrada local para validar a esteira contra o benchmark fornecido no teste.
+
+A pasta `assets/` fica fora do contexto do Repomix e fora do Git, evitando expor payloads, gabaritos ou secrets do processo seletivo.
 
 ---
 
@@ -159,8 +185,7 @@ curl -X POST http://localhost:8000/webhooks/lous \
     "product": {
       "id": "PROD-001",
       "name": "Fit Burn",
-      "niche": "weight_loss",
-      "quantity": 1
+      "niche": "weight_loss"
     },
     "quantity": 1,
     "payment": {
@@ -209,6 +234,38 @@ curl http://localhost:8000/debug/raw-payloads?limit=10
 
 Essa rota existe apenas para facilitar desenvolvimento, Postman e Loom.  
 Ela ajuda a visualizar se os webhooks foram persistidos corretamente em `raw_payloads`.
+
+---
+
+### Benchmark local dos payloads do desafio
+
+```http
+POST /debug/benchmark/replay
+```
+
+Essa rota existe para desenvolvimento local. Ela lê `assets/webhook_payloads.json` e reenvia os payloads pelo mesmo fluxo usado pelo receiver real.
+
+Exemplo sem persistir nada no banco:
+
+```bash
+curl -s -X POST "http://localhost:8000/debug/benchmark/replay?dry_run=true&limit=10" | jq
+```
+
+Exemplo executando a carga real limitada:
+
+```bash
+curl -s -X POST "http://localhost:8000/debug/benchmark/replay?limit=200" | jq
+```
+
+Por padrão, antes de rodar uma nova carga real, o benchmark remove os registros antigos criados pelo próprio benchmark em `raw_payloads`. Isso evita acumular lixo no banco durante testes repetidos.
+
+Para não limpar a carga anterior, use:
+
+```bash
+curl -s -X POST "http://localhost:8000/debug/benchmark/replay?limit=200&cleanup_previous=false" | jq
+```
+
+O objetivo dessa rota não é mascarar falhas. Ela serve para comparar o estado atual da implementação contra os payloads reais do desafio e deixar visível o que ainda falta, como decrypt real, ajustes de schema, normalização e idempotência.
 
 ---
 
@@ -292,9 +349,10 @@ O repository concentra as operações de banco usando SQLAlchemy Core, evitando 
 
 Optei por usar SQLAlchemy Core no código da aplicação, sem migrar para ORM completo.
 
-A motivação foi equilibrar dois pontos: 
+A motivação foi equilibrar dois pontos:
+
 - eu não queria espalhar SQL string manual pelos repositories
-- mas, ao mesmo tempo, eu também não queria esconder demais o comportamento do banco atrás de uma camada de ORM mais abstrata do que o problema pede.
+- mas, ao mesmo tempo, eu também não queria esconder demais o comportamento do banco atrás de uma camada de ORM mais abstrata do que o problema pede
 
 Neste desafio, o banco é parte importante da avaliação: modelagem, constraints, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, faz sentido manter as operações de persistência próximas do modelo relacional.
 
@@ -316,12 +374,7 @@ Essa escolha mantém o acesso ao banco de forma explícita, ao passo em que evit
 
 A primeira regra implementada foi salvar o payload bruto em `raw_payloads`.
 
-Essa decisão foi proposital porque **o payload bruto é a base de auditoria do sistema**. Mesmo 
-- se o decrypt falhar
-- se o schema estiver inválido
-- se o processamento posterior quebrar
-
-Mesmo que aconteça qualquer uma dessas 3, ainda existe um registro do que chegou, quando chegou, de qual gateway veio e qual `correlation_id` foi gerado.
+Essa decisão foi proposital porque **o payload bruto é a base de auditoria do sistema**. Mesmo se o decrypt falhar, se o schema estiver inválido ou se o processamento posterior quebrar, ainda existe um registro do que chegou, quando chegou, de qual gateway veio e qual `correlation_id` foi gerado.
 
 Isso também ajuda no cenário de incidente descrito no desafio, porque permite diferenciar se o gateway nunca enviou, se o webhook chegou mas falhou depois, ou se o problema ocorreu em uma etapa posterior da esteira.
 
@@ -371,6 +424,18 @@ Em produção, esse tipo de rota deveria ser protegido, removido ou substituído
 
 ---
 
+### Benchmark local com os anexos do desafio
+
+Adicionei `POST /debug/benchmark/replay` para rodar localmente os payloads fornecidos no teste técnico contra o fluxo real da aplicação.
+
+A ideia é usar o próprio benchmark do desafio como ferramenta de diagnóstico, em vez de depender apenas de payloads manuais criados durante o desenvolvimento.
+
+A rota suporta `dry_run=true`, que apenas lê e classifica os payloads sem persistir no banco. Quando roda sem `dry_run`, os registros criados recebem um marcador interno de benchmark nos headers salvos em `raw_payloads`. Antes de uma nova execução, a rota remove os registros antigos criados pelo próprio benchmark, evitando acúmulo de lixo no banco local.
+
+Os arquivos reais ficam em `assets/`, mas não são versionados porque fazem parte do material do processo seletivo e incluem payloads, gabaritos e secret de teste.
+
+---
+
 ### RabbitMQ e workers
 
 O Docker Compose já sobe RabbitMQ, um worker de leads e um worker de distribuição SMS.
@@ -392,6 +457,7 @@ Implementado:
 - Validação inicial de schemas
 - Roteamento inicial de esteiras
 - Debug de payloads recebidos
+- Replay local dos payloads reais do desafio via benchmark debug
 - Workers stub com reload local
 - Testes automatizados básicos
 

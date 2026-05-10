@@ -17,3 +17,7 @@ repomix.config.json
 mysql_data/
 
 .idea/
+
+# Local challenge input files
+assets/*
+!assets/.gitkeep
