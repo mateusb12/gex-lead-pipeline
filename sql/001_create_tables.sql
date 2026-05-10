@@ -9,6 +9,19 @@ CREATE TABLE IF NOT EXISTS raw_payloads (
     error_reason TEXT NULL
 );
 
+CREATE TABLE IF NOT EXISTS webhook_idempotency_keys (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    gateway VARCHAR(32) NOT NULL,
+    transaction_id VARCHAR(120) NOT NULL,
+    event VARCHAR(120) NOT NULL,
+    raw_payload_id BIGINT NOT NULL,
+    correlation_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uk_webhook_idempotency_gateway_transaction_event (gateway, transaction_id, event),
+    CONSTRAINT fk_webhook_idempotency_raw_payload
+        FOREIGN KEY (raw_payload_id) REFERENCES raw_payloads(id)
+);
+
 CREATE TABLE IF NOT EXISTS leads (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,

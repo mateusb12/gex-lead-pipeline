@@ -1,6 +1,15 @@
 from uuid import UUID
 
+import pytest
+
 from source.features.webhooks import service
+
+
+
+
+@pytest.fixture(autouse=True)
+def mock_idempotency(monkeypatch):
+    monkeypatch.setattr(service, "try_register_webhook_idempotency_key", lambda **kwargs: True)
 
 
 VALID_LOUS_BODY = {
@@ -250,3 +259,41 @@ def test_webhook_com_email_invalido_vai_para_schema_failed(monkeypatch):
     assert response["pipeline"] == "lous_plain_json"
     assert captured_update["error_reason"].startswith("schema_failed")
     assert "invalid email format" in captured_update["error_reason"]
+
+
+def test_webhook_duplicado_retorna_duplicate_sem_republicar(monkeypatch):
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 777)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+    monkeypatch.setattr(service, "try_register_webhook_idempotency_key", lambda **kwargs: False)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=VALID_LOUS_BODY,
+    )
+
+    assert response["status"] == "duplicate"
+    assert response["pipeline"] == "duplicate_webhook"
+    assert response["should_publish_to_lead_queue"] is False
+    assert response["transaction_id"] == VALID_LOUS_BODY["transaction_id"]
+    assert response["event"] == VALID_LOUS_BODY["event"]
+
+
+def test_log_estruturado_nao_expoe_email_ou_telefone(monkeypatch, capsys):
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 778)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=VALID_LOUS_BODY,
+    )
+
+    captured = capsys.readouterr().out
+
+    assert response["status"] == "validated"
+    assert '"event_type": "webhook_processed"' in captured
+    assert response["correlation_id"] in captured
+    assert "customer_identifier" in captured
+    assert VALID_LOUS_BODY["customer"]["email"] not in captured
+    assert VALID_LOUS_BODY["customer"]["phone"] not in captured

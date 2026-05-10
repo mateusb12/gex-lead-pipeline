@@ -1,7 +1,9 @@
 from typing import Any
 
 from source.shared.db import get_engine
-from source.shared.tables import raw_payloads
+from sqlalchemy.exc import IntegrityError
+
+from source.shared.tables import raw_payloads, webhook_idempotency_keys
 
 
 def insert_raw_payload(
@@ -42,3 +44,28 @@ def update_raw_payload_result(
 
     with get_engine().begin() as connection:
         connection.execute(statement)
+
+def try_register_webhook_idempotency_key(
+    *,
+    gateway: str,
+    transaction_id: str,
+    event: str,
+    raw_payload_id: int,
+    correlation_id: str,
+) -> bool:
+    statement = webhook_idempotency_keys.insert().values(
+        gateway=gateway,
+        transaction_id=transaction_id,
+        event=event,
+        raw_payload_id=raw_payload_id,
+        correlation_id=correlation_id,
+    )
+
+    try:
+        with get_engine().begin() as connection:
+            connection.execute(statement)
+    except IntegrityError:
+        return False
+
+    return True
+

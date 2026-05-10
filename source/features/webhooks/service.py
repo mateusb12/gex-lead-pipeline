@@ -1,14 +1,21 @@
+import time
 from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
 
 from source.features.webhooks.decryption import DecryptionError, decrypt_grummer_payload
-from source.features.webhooks.repository import insert_raw_payload, update_raw_payload_result
+from source.features.webhooks.repository import (
+    insert_raw_payload,
+    try_register_webhook_idempotency_key,
+    update_raw_payload_result,
+)
 from source.features.webhooks.schemas import GrummerEncryptedEnvelope, SalesEventPayload
+from source.shared.structured_logging import anonymize_identifier, log_json
 
 
 def receive_webhook(*, gateway: str, headers: dict[str, Any], body: Any) -> dict[str, Any]:
+    started_at = time.perf_counter()
     correlation_id = str(uuid4())
 
     raw_payload_id = insert_raw_payload(
@@ -19,22 +26,26 @@ def receive_webhook(*, gateway: str, headers: dict[str, Any], body: Any) -> dict
     )
 
     if gateway == "lous":
-        return _process_lous(correlation_id=correlation_id, raw_payload_id=raw_payload_id, body=body)
-
-    if gateway == "grummer":
-        return _process_grummer(
+        response = _process_lous(correlation_id=correlation_id, raw_payload_id=raw_payload_id, body=body)
+    elif gateway == "grummer":
+        response = _process_grummer(
             correlation_id=correlation_id,
             raw_payload_id=raw_payload_id,
             headers=headers,
             body=body,
         )
+    else:
+        response = {
+            "status": "unsupported_gateway",
+            "gateway": gateway,
+            "correlation_id": correlation_id,
+            "raw_payload_id": raw_payload_id,
+        }
 
-    return {
-        "status": "unsupported_gateway",
-        "gateway": gateway,
-        "correlation_id": correlation_id,
-        "raw_payload_id": raw_payload_id,
-    }
+    latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    _log_webhook_result(response=response, latency_ms=latency_ms)
+
+    return response
 
 
 def _process_lous(*, correlation_id: str, raw_payload_id: int, body: Any) -> dict[str, Any]:
@@ -168,6 +179,27 @@ def _route_sales_event(
     raw_payload_id: int,
     sales_event: SalesEventPayload,
 ) -> dict[str, Any]:
+    idempotency_registered = try_register_webhook_idempotency_key(
+        gateway=gateway,
+        transaction_id=sales_event.transaction_id,
+        event=sales_event.event,
+        raw_payload_id=raw_payload_id,
+        correlation_id=correlation_id,
+    )
+
+    if not idempotency_registered:
+        return {
+            "status": "duplicate",
+            "pipeline": "duplicate_webhook",
+            "gateway": gateway,
+            "correlation_id": correlation_id,
+            "raw_payload_id": raw_payload_id,
+            "transaction_id": sales_event.transaction_id,
+            "event": sales_event.event,
+            "payment_status": sales_event.payment.status,
+            "should_publish_to_lead_queue": False,
+        }
+
     is_approved = sales_event.event == "order.approved" and sales_event.payment.status == "approved"
 
     return {
@@ -201,3 +233,23 @@ def _is_grummer_encrypted(headers: dict[str, Any]) -> bool:
         return value.strip().lower() == "true"
 
     return False
+
+def _log_webhook_result(*, response: dict[str, Any], latency_ms: float) -> None:
+    customer = response.get("customer") or {}
+    customer_identifier = None
+
+    if isinstance(customer, dict):
+        customer_identifier = anonymize_identifier(customer.get("email"))
+
+    log_json(
+        "webhook_processed",
+        correlation_id=response.get("correlation_id"),
+        gateway=response.get("gateway"),
+        status=response.get("status"),
+        pipeline=response.get("pipeline"),
+        event=response.get("event"),
+        latency_ms=latency_ms,
+        raw_payload_id=response.get("raw_payload_id"),
+        customer_identifier=customer_identifier,
+    )
+
