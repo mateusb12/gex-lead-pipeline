@@ -18,14 +18,14 @@ async def _post(path: str, *, json: dict) -> httpx.Response:
         return await client.post(path, json=json)
 
 
-def test_health_check():
+def test_health_check_retorna_status_ok():
     response = asyncio.run(_get("/health"))
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_webhook_lous_stub(monkeypatch):
+def test_endpoint_webhook_lous_retorna_resposta_do_service(monkeypatch):
     def fake_receive_webhook_service(*, gateway, headers, body):
         return {
             "status": "validated",

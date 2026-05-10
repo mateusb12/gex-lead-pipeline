@@ -179,6 +179,14 @@ def _route_sales_event(
         "transaction_id": sales_event.transaction_id,
         "event": sales_event.event,
         "payment_status": sales_event.payment.status,
+        "customer": {
+            "email": sales_event.customer.email,
+            "first_name": sales_event.customer.first_name,
+            "last_name": sales_event.customer.last_name,
+            "phone": sales_event.customer.phone,
+            "phone_is_valid": sales_event.customer.phone_is_valid,
+            "country": sales_event.customer.country,
+        },
         "should_publish_to_lead_queue": is_approved,
     }
 

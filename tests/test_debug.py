@@ -12,7 +12,7 @@ async def _get(path: str) -> httpx.Response:
         return await client.get(path)
 
 
-def test_list_raw_payloads(monkeypatch):
+def test_listar_payloads_brutos_retorna_itens_salvos(monkeypatch):
     def fake_get_raw_payloads(limit: int = 10):
         return {
             "count": 1,

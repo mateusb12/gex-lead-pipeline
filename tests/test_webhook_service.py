@@ -28,7 +28,7 @@ VALID_LOUS_BODY = {
 }
 
 
-def test_receive_webhook_routes_lous_valid_payload(monkeypatch):
+def test_webhook_lous_valido_segue_para_fila_de_leads(monkeypatch):
     captured_insert = {}
 
     def fake_insert_raw_payload(**kwargs):
@@ -56,7 +56,7 @@ def test_receive_webhook_routes_lous_valid_payload(monkeypatch):
     assert captured_insert["body_original"] == VALID_LOUS_BODY
 
 
-def test_receive_webhook_routes_lous_invalid_payload_to_schema_failed(monkeypatch):
+def test_webhook_lous_invalido_vai_para_schema_failed(monkeypatch):
     captured_update = {}
 
     monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 123)
@@ -79,7 +79,7 @@ def test_receive_webhook_routes_lous_invalid_payload_to_schema_failed(monkeypatc
     assert captured_update["error_reason"].startswith("schema_failed")
 
 
-def test_receive_webhook_routes_grummer_envelope_to_validated_payload(monkeypatch):
+def test_webhook_grummer_decriptado_valido_segue_para_fila_de_leads(monkeypatch):
     captured_update = {}
 
     monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 789)
@@ -104,7 +104,7 @@ def test_receive_webhook_routes_grummer_envelope_to_validated_payload(monkeypatc
     assert captured_update["body_decrypted"] == VALID_LOUS_BODY
 
 
-def test_receive_webhook_routes_invalid_grummer_envelope_to_schema_failed(monkeypatch):
+def test_webhook_grummer_com_envelope_invalido_vai_para_schema_failed(monkeypatch):
     captured_update = {}
 
     monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 999)
@@ -126,7 +126,7 @@ def test_receive_webhook_routes_invalid_grummer_envelope_to_schema_failed(monkey
     assert captured_update["error_reason"].startswith("schema_failed")
 
 
-def test_receive_webhook_accepts_benchmark_quantity_inside_product(monkeypatch):
+def test_webhook_aceita_quantity_dentro_de_product_no_payload_do_benchmark(monkeypatch):
     body = {
         "transaction_id": "ORD-TEST-BENCHMARK-001",
         "transaction_time": "2026-05-10T17:49:30.715553+00:00",
@@ -164,3 +164,89 @@ def test_receive_webhook_accepts_benchmark_quantity_inside_product(monkeypatch):
     assert response["pipeline"] == "lead.received"
     assert response["transaction_id"] == "ORD-TEST-BENCHMARK-001"
     assert response["should_publish_to_lead_queue"] is True
+
+
+def test_webhook_normaliza_campos_criticos_do_cliente(monkeypatch):
+    body = {
+        **VALID_LOUS_BODY,
+        "customer": {
+            "email": "  TEST.NORMALIZED@Example.COM  ",
+            "first_name": "",
+            "last_name": " Customer ",
+            "phone": "+1 (800) 555-1234",
+            "country": "us",
+        },
+    }
+
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 654)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+
+    assert response["status"] == "validated"
+    assert response["customer"] == {
+        "email": "test.normalized@example.com",
+        "first_name": "Customer",
+        "last_name": "Customer",
+        "phone": "+18005551234",
+        "phone_is_valid": True,
+        "country": "US",
+    }
+
+
+def test_webhook_sinaliza_telefone_invalido_mas_mantem_lead(monkeypatch):
+    body = {
+        **VALID_LOUS_BODY,
+        "customer": {
+            **VALID_LOUS_BODY["customer"],
+            "phone": "abc-123",
+        },
+    }
+
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 655)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+
+    assert response["status"] == "validated"
+    assert response["should_publish_to_lead_queue"] is True
+    assert response["customer"]["phone"] == "123"
+    assert response["customer"]["phone_is_valid"] is False
+
+
+def test_webhook_com_email_invalido_vai_para_schema_failed(monkeypatch):
+    captured_update = {}
+
+    body = {
+        **VALID_LOUS_BODY,
+        "customer": {
+            **VALID_LOUS_BODY["customer"],
+            "email": "invalid-email",
+        },
+    }
+
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 656)
+
+    def fake_update_raw_payload_result(**kwargs):
+        captured_update.update(kwargs)
+
+    monkeypatch.setattr(service, "update_raw_payload_result", fake_update_raw_payload_result)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+
+    assert response["status"] == "schema_failed"
+    assert response["pipeline"] == "lous_plain_json"
+    assert captured_update["error_reason"].startswith("schema_failed")
+    assert "invalid email format" in captured_update["error_reason"]

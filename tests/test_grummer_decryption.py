@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.padding import PKCS7
 from source.features.webhooks import decryption
 
 
-def test_decrypt_grummer_payload(monkeypatch):
+def test_decriptar_payload_grummer_com_aes_cbc_e_pkcs7(monkeypatch):
     key = bytes.fromhex("00" * 32)
     iv = bytes.fromhex("11" * 16)
 
