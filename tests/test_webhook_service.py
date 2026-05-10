@@ -122,3 +122,43 @@ def test_receive_webhook_routes_invalid_grummer_envelope_to_schema_failed(monkey
     assert response["pipeline"] == "grummer_encrypted_envelope"
     assert response["raw_payload_id"] == 999
     assert captured_update["error_reason"].startswith("schema_failed")
+
+
+def test_receive_webhook_accepts_benchmark_quantity_inside_product(monkeypatch):
+    body = {
+        "transaction_id": "ORD-TEST-BENCHMARK-001",
+        "transaction_time": "2026-05-10T17:49:30.715553+00:00",
+        "event": "order.approved",
+        "customer": {
+            "email": "benchmark@example.com",
+            "first_name": "Benchmark",
+            "last_name": "Customer",
+            "phone": "+18005551234",
+            "country": "US",
+        },
+        "product": {
+            "id": "PROD-001",
+            "name": "Fit Burn",
+            "niche": "weight_loss",
+            "quantity": 1,
+        },
+        "payment": {
+            "status": "approved",
+            "amount_usd": 99.90,
+            "method": "credit_card",
+        },
+    }
+
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 321)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+
+    assert response["status"] == "validated"
+    assert response["pipeline"] == "lead.received"
+    assert response["transaction_id"] == "ORD-TEST-BENCHMARK-001"
+    assert response["should_publish_to_lead_queue"] is True

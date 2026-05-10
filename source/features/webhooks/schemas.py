@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class GrummerEncryptedEnvelope(BaseModel):
@@ -38,3 +38,27 @@ class SalesEventPayload(BaseModel):
     product: ProductPayload
     quantity: int
     payment: PaymentPayload
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_quantity_location(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        if data.get("quantity") is not None:
+            return data
+
+        product = data.get("product")
+
+        if not isinstance(product, dict):
+            return data
+
+        product_quantity = product.get("quantity")
+
+        if product_quantity is None:
+            return data
+
+        return {
+            **data,
+            "quantity": product_quantity,
+        }
