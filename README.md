@@ -2,9 +2,9 @@
 
 Esse projeto é uma solução para o teste técnico Backend PL da GEX.
 
-A ideia do projeto foi construir uma esteira simples, mas rastreável: receber webhooks de gateways, persistir o payload bruto, validar o formato de entrada, preparar o roteamento para filas e deixar a base pronta para processamento assíncrono de leads.
+A ideia do projeto foi construir uma esteira de integração para webhooks de gateways: receber eventos, persistir o payload bruto, validar schemas, tratar payloads criptografados, garantir idempotência, publicar em filas e distribuir leads para canais downstream.
 
-O foco inicial foi priorizar o receiver, a persistência do bruto e a organização do fluxo, porque esses pontos são a base para decrypt, idempotência, DLQ, workers e auditoria SQL.
+A implementação prioriza rastreabilidade e segurança operacional. Cada payload recebido fica registrado em `raw_payloads`, cada request recebe um `correlation_id`, os gateways `lous` e `grummer` são tratados conforme seus formatos, e os fluxos de sucesso, descarte, erro de schema, falha de decrypt e distribuição são separados para facilitar auditoria, reprocessamento e investigação de incidentes.
 
 ## Stack utilizada
 
@@ -280,11 +280,11 @@ A separação principal ficou assim:
 - o repository concentra o acesso a dados com SQLAlchemy Core
 - o shared/db cria a conexão com o banco
 
-O router não deveria carregar regra de negócio demais. Ele recebe a request, valida o gateway no path, lê o JSON e chama o service.
+O router propositalmente não carrega regra de negócio demais. Ele recebe a request, valida o gateway no path, lê o JSON e chama o service.
 
 O service decide se o payload é `lous`, `grummer`, schema válido, schema inválido ou decrypt stubado.
 
-O repository concentra as operações de banco usando SQLAlchemy Core, evitando SQL string espalhada na aplicação para operações comuns de insert, select e update.
+O repository concentra as operações de banco usando SQLAlchemy Core, evitando SQL string espalhada na aplicação para operações comuns de `insert`, `select` e `update`.
 
 ---
 
@@ -296,19 +296,19 @@ A motivação foi equilibrar dois pontos:
 - eu não queria espalhar SQL string manual pelos repositories
 - mas, ao mesmo tempo, eu também não queria esconder demais o comportamento do banco atrás de uma camada de ORM mais abstrata do que o problema pede.
 
-Neste desafio, o banco é parte importante da avaliação: modelagem, constraints, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, faz sentido manter as operações de persistência próximas do modelo relacional e fáceis de inspecionar.
+Neste desafio, o banco é parte importante da avaliação: modelagem, constraints, índices, idempotência, queries de auditoria e EXPLAIN. Por isso, faz sentido manter as operações de persistência próximas do modelo relacional.
 
-Na aplicação, as operações comuns usam `Table`, `insert()`, `select()` e `update()` do SQLAlchemy Core. Isso deixa o código mais refatorável do que strings SQL soltas, sem transformar o fluxo em uma camada de entidades ORM que não agrega muito neste momento.
+Na aplicação, as operações comuns usam `Table`, `insert()`, `select()` e `update()` do SQLAlchemy Core. Isso deixa o código mais refatorável do que strings SQL soltas, sem a parte ruim de transformar o fluxo em uma camada de entidades ORM que não agrega muito neste momento.
 
 Os scripts SQL continuam separados em `sql/`, porque fazem parte da entrega do teste e precisam ser avaliados diretamente: criação de tabelas, índices, queries de auditoria e, se aplicável, stored procedure.
 
-A regra prática adotada foi:
+A regra prática que eu quis adotar acabou sendo:
 
 - SQLAlchemy Core para código de aplicação
 - SQL puro nos arquivos `sql/`
 - `text()` apenas quando fizer sentido, como no ping simples de conexão com o banco
 
-Essa escolha mantém o acesso ao banco explícito, mas evita que os repositories virem um conjunto de strings SQL difíceis de refatorar.
+Essa escolha mantém o acesso ao banco de forma explícita, ao passo em que evita que os repositories virem um conjunto de strings SQL difíceis de refatorar.
 
 ---
 
@@ -316,7 +316,12 @@ Essa escolha mantém o acesso ao banco explícito, mas evita que os repositories
 
 A primeira regra implementada foi salvar o payload bruto em `raw_payloads`.
 
-Essa decisão foi proposital porque o payload bruto é a base de auditoria do sistema. Mesmo se o decrypt falhar, o schema estiver inválido ou o processamento posterior quebrar, ainda existe um registro do que chegou, quando chegou, de qual gateway veio e qual `correlation_id` foi gerado.
+Essa decisão foi proposital porque **o payload bruto é a base de auditoria do sistema**. Mesmo 
+- se o decrypt falhar
+- se o schema estiver inválido
+- se o processamento posterior quebrar
+
+Mesmo que aconteça qualquer uma dessas 3, ainda existe um registro do que chegou, quando chegou, de qual gateway veio e qual `correlation_id` foi gerado.
 
 Isso também ajuda no cenário de incidente descrito no desafio, porque permite diferenciar se o gateway nunca enviou, se o webhook chegou mas falhou depois, ou se o problema ocorreu em uma etapa posterior da esteira.
 
@@ -331,7 +336,7 @@ Hoje existem dois formatos importantes:
 - `lous`: payload de venda aberto em JSON
 - `grummer`: envelope criptografado contendo `iv` e `ciphertext`
 
-O payload de venda é validado com um schema próprio. O envelope criptografado do `grummer` também é validado antes da futura etapa de decrypt.
+O payload de venda é validado com um schema próprio. O envelope criptografado do `grummer` também é validado antes da etapa de decrypt.
 
 A validação ainda não é a normalização final de negócio. Ela apenas confirma se a estrutura mínima esperada chegou. Normalizações como e-mail lowercase, telefone em E.164 e nome padrão serão implementadas em uma etapa posterior.
 
