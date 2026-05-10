@@ -114,16 +114,23 @@ A pasta `assets/` fica fora do contexto do Repomix e fora do Git, evitando expor
 
 ### Subir a aplicação
 
-Primeira execução, ou depois de mudar dependências:
+Primeira execução em banco limpo, ou depois de mudar dependências:
 
 ```bash
 docker compose up -d --build
 ```
 
-Uso normal durante desenvolvimento:
+Uso normal durante desenvolvimento, quando o schema do banco não mudou:
 
 ```bash
 docker compose up -d
+```
+
+Quando houver mudança nos scripts SQL e o volume local do MySQL já existir, recrie o banco do zero para reaplicar `sql/001_create_tables.sql` e `sql/002_indexes.sql`:
+
+```bash
+docker compose down -v
+docker compose up -d --build
 ```
 
 A API fica disponível em:
@@ -410,7 +417,9 @@ Internamente, o service separa as esteiras:
 - `grummer` com envelope válido segue para a futura etapa de decrypt real
 - `grummer` com envelope inválido é marcado como `schema_failed`
 
-Neste momento, a publicação em RabbitMQ ainda não foi implementada. A resposta já indica qual seria a próxima esteira, mas o envio real para fila fica para a próxima etapa.
+A idempotência do receiver é baseada em `gateway + transaction_id + event`. A ideia é permitir que um mesmo pedido evolua ao longo do tempo, por exemplo de `order.approved` para `order.refunded`, sem permitir que o mesmo evento seja processado duas vezes. 
+
+Na prática: `lous + ORD-001 + order.approved` entra na primeira vez; se chegar novamente com a mesma combinação, vira `duplicate` e não deve ser republicado. Neste momento, a publicação em RabbitMQ ainda não foi implementada. A resposta já indica qual seria a próxima esteira, mas o envio real para fila fica para a próxima etapa.
 
 ---
 
@@ -454,7 +463,11 @@ Implementado:
 - Estrutura por feature
 - Conexão com banco via SQLAlchemy Core
 - Persistência em `raw_payloads`
-- Validação inicial de schemas
+- Decrypt AES-256-CBC real do Grummer
+- Validação de schemas para Lous e Grummer decriptado
+- Normalização de e-mail, telefone, nome e país
+- Idempotência inicial por `gateway + transaction_id + event`
+- Logs estruturados com `correlation_id` e identificador anonimizado do cliente
 - Roteamento inicial de esteiras
 - Debug de payloads recebidos
 - Replay local dos payloads reais do desafio via benchmark debug
@@ -463,12 +476,11 @@ Implementado:
 
 Ainda falta:
 
-- decrypt AES-256-CBC real do Grummer
-- normalização de e-mail, telefone e nome
-- idempotência por `transaction_id + event`
-- publicação na fila `lead.received`
+- publicação real na fila `lead.received`
+- DLQs reais para decrypt/schema/consumer
 - consumer real de leads
-- retry e DLQ
+- persistência em `leads`, `orders`, `lead_events` e `distribution_status`
+- retry e backoff exponencial
 - distribuidor SMS real com webhook.site
 - queries de auditoria em `audit_queries.sql`
 - documentação conceitual do incidente e decisões de arquitetura
