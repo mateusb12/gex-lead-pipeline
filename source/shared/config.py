@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     grummer_secret_hex: str | None = None
 
+    sms_webhook_url: str | None = None
+
     @property
     def database_url(self) -> str:
         host = f"{self.mysql_host}:{self.mysql_port}"

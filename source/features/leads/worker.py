@@ -2,18 +2,16 @@ import json
 import time
 from typing import Any
 
-import pika
-
 from source.features.leads.repository import (
     insert_lead_worker_dead_letter,
     persist_lead_received_message,
 )
-from source.shared.config import settings
 from source.shared.rabbitmq import (
     DISTRIBUTION_QUEUES_BY_CHANNEL,
     LEAD_DEAD_CONSUMER_FAILED_QUEUE,
     LEAD_RECEIVED_QUEUE,
     publish_json,
+    start_consumer,
 )
 from source.shared.structured_logging import anonymize_identifier, log_json, safe_log_error_detail
 
@@ -21,27 +19,13 @@ LEAD_CONSUMER_RETRY_DELAYS_SECONDS = (1, 4, 16)
 
 
 def main() -> None:
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(
-            host=settings.rabbitmq_host,
-            port=settings.rabbitmq_port,
-            heartbeat=30,
-            blocked_connection_timeout=30,
-        )
-    )
-
-    channel = connection.channel()
-    channel.queue_declare(queue=LEAD_RECEIVED_QUEUE, durable=True)
-    channel.queue_declare(queue=LEAD_DEAD_CONSUMER_FAILED_QUEUE, durable=True)
-    channel.basic_qos(prefetch_count=1)
-
-    channel.basic_consume(
-        queue=LEAD_RECEIVED_QUEUE,
+    start_consumer(
+        queue_name=LEAD_RECEIVED_QUEUE,
         on_message_callback=_consume_lead_received_from_queue,
+        extra_queues=(LEAD_DEAD_CONSUMER_FAILED_QUEUE,),
     )
 
     print(f"lead worker started. consuming queue={LEAD_RECEIVED_QUEUE}")
-    channel.start_consuming()
 
 
 def process_lead_received_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -129,7 +113,6 @@ def _consume_lead_received_from_queue(channel, method, properties, body: bytes) 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as exc:  # noqa: BLE001
-        error_detail = str(exc)
         dlq_payload = _build_failed_message_payload(
             message=message,
             body=body,
