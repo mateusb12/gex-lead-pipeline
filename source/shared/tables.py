@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, CHAR, JSON, Column, MetaData, String, Table, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CHAR, JSON, Column, ForeignKey, Integer, MetaData, Numeric, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects.mysql import TIMESTAMP
 
 metadata = MetaData()
@@ -32,6 +32,63 @@ webhook_idempotency_keys = Table(
         "event",
         name="uk_webhook_idempotency_gateway_transaction_event",
     ),
+)
+
+leads = Table(
+    "leads",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("email", String(255), nullable=False),
+    Column("first_name", String(120), nullable=False),
+    Column("last_name", String(120), nullable=True),
+    Column("phone", String(32), nullable=True),
+    Column("country", CHAR(2), nullable=True),
+    Column("created_at", TIMESTAMP(fsp=6), nullable=False),
+    UniqueConstraint("email", name="uk_leads_email"),
+)
+
+orders = Table(
+    "orders",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("lead_id", BigInteger, ForeignKey("leads.id"), nullable=True),
+    Column("gateway", String(32), nullable=False),
+    Column("transaction_id", String(120), nullable=False),
+    Column("product_id", String(120), nullable=True),
+    Column("product_name", String(255), nullable=True),
+    Column("product_niche", String(120), nullable=True),
+    Column("quantity", Integer, nullable=True),
+    Column("amount_usd", Numeric(12, 2), nullable=True),
+    Column("payment_method", String(64), nullable=True),
+    Column("payment_status", String(64), nullable=True),
+    Column("created_at", TIMESTAMP(fsp=6), nullable=False),
+    UniqueConstraint("gateway", "transaction_id", name="uk_orders_gateway_transaction"),
+)
+
+lead_events = Table(
+    "lead_events",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("order_id", BigInteger, ForeignKey("orders.id"), nullable=False),
+    Column("correlation_id", CHAR(36), nullable=False),
+    Column("event", String(120), nullable=False),
+    Column("transaction_time", TIMESTAMP(fsp=6), nullable=True),
+    Column("persisted_at", TIMESTAMP(fsp=6), nullable=False),
+    Column("gateway_to_db_lag_seconds", Integer, nullable=True),
+    UniqueConstraint("order_id", "event", name="uk_lead_events_order_event"),
+)
+
+distribution_status = Table(
+    "distribution_status",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("order_id", BigInteger, ForeignKey("orders.id"), nullable=False),
+    Column("channel", String(32), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("created_at", TIMESTAMP(fsp=6), nullable=False),
+    Column("delivered_at", TIMESTAMP(fsp=6), nullable=True),
+    Column("db_to_channel_lag_seconds", Integer, nullable=True),
+    UniqueConstraint("order_id", "channel", name="uk_distribution_order_channel"),
 )
 
 lead_dead_letter = Table(

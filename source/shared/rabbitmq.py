@@ -11,6 +11,18 @@ LEAD_RECEIVED_QUEUE = "lead.received"
 LEAD_DEAD_DECRYPT_FAILED_QUEUE = "lead.dead.decrypt_failed"
 LEAD_DEAD_SCHEMA_FAILED_QUEUE = "lead.dead.schema_failed"
 
+DIST_SMS_QUEUE = "dist.sms"
+DIST_EMAIL_QUEUE = "dist.email"
+DIST_CALLCENTER_QUEUE = "dist.callcenter"
+DIST_WHATSAPP_QUEUE = "dist.whatsapp"
+
+DISTRIBUTION_QUEUES_BY_CHANNEL = {
+    "SMS": DIST_SMS_QUEUE,
+    "EMAIL": DIST_EMAIL_QUEUE,
+    "CALL_CENTER": DIST_CALLCENTER_QUEUE,
+    "WHATSAPP": DIST_WHATSAPP_QUEUE,
+}
+
 
 def publish_json(*, queue_name: str, message: dict[str, Any]) -> None:
     connection = pika.BlockingConnection(
