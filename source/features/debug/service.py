@@ -2,7 +2,8 @@ import json
 from datetime import datetime
 from typing import Any
 
-from source.features.debug.repository import list_raw_payloads
+from source.features.debug.repository import clear_database_tables, list_raw_payloads
+from source.shared.config import settings
 
 
 def _decode_json(value: Any) -> Any:
@@ -48,3 +49,24 @@ def get_raw_payloads(limit: int = 10) -> dict[str, Any]:
         )
 
     return {"count": len(payloads), "items": payloads}
+
+
+def clear_debug_database(*, confirm: bool = False) -> dict[str, Any]:
+    if settings.app_env != "local":
+        return {
+            "status": "blocked",
+            "message": "Database cleanup is only allowed when APP_ENV=local.",
+        }
+
+    if not confirm:
+        return {
+            "status": "confirmation_required",
+            "message": "Use DELETE /debug/database?confirm=true to clear local debug data.",
+        }
+
+    result = clear_database_tables()
+
+    return {
+        "status": "ok",
+        **result,
+    }

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 
 from source.features.debug.benchmark import replay_benchmark_payloads
-from source.features.debug.service import get_raw_payloads
+from source.features.debug.service import clear_debug_database, get_raw_payloads
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -22,3 +22,8 @@ def replay_benchmark(
         dry_run=dry_run,
         cleanup_previous=cleanup_previous,
     )
+
+
+@router.delete("/database")
+def clear_database(confirm: bool = Query(default=False)):
+    return clear_debug_database(confirm=confirm)
