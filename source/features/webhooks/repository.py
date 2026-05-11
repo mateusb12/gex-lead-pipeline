@@ -3,7 +3,7 @@ from typing import Any
 from source.shared.db import get_engine
 from sqlalchemy.exc import IntegrityError
 
-from source.shared.tables import raw_payloads, webhook_idempotency_keys
+from source.shared.tables import lead_dead_letter, raw_payloads, webhook_idempotency_keys
 
 
 def insert_raw_payload(
@@ -69,3 +69,22 @@ def try_register_webhook_idempotency_key(
 
     return True
 
+
+def insert_lead_dead_letter(
+    *,
+    source: str,
+    reason: str,
+    payload: Any,
+    error_detail: str,
+) -> int:
+    statement = lead_dead_letter.insert().values(
+        source=source,
+        reason=reason,
+        payload=payload,
+        error_detail=error_detail,
+    )
+
+    with get_engine().begin() as connection:
+        result = connection.execute(statement)
+
+    return int(result.lastrowid)

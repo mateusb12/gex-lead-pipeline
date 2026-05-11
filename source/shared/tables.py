@@ -34,3 +34,13 @@ webhook_idempotency_keys = Table(
     ),
 )
 
+lead_dead_letter = Table(
+    "lead_dead_letter",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("source", String(120), nullable=False),
+    Column("reason", String(120), nullable=False),
+    Column("payload", JSON(none_as_null=True), nullable=True),
+    Column("error_detail", Text, nullable=True),
+    Column("created_at", TIMESTAMP(fsp=6), nullable=False),
+)

@@ -5,6 +5,32 @@ import pytest
 from source.features.webhooks import service
 
 
+@pytest.fixture(autouse=True)
+def mock_rabbitmq_publish(monkeypatch):
+    published_messages = []
+
+    def fake_publish_json(**kwargs):
+        published_messages.append(kwargs)
+
+    monkeypatch.setattr(service, "publish_json", fake_publish_json)
+
+    return published_messages
+
+
+@pytest.fixture(autouse=True)
+def mock_dead_letter_insert(monkeypatch):
+    inserted_dead_letters = []
+
+    def fake_insert_lead_dead_letter(**kwargs):
+        inserted_dead_letters.append(kwargs)
+        return len(inserted_dead_letters)
+
+    monkeypatch.setattr(service, "insert_lead_dead_letter", fake_insert_lead_dead_letter)
+
+    return inserted_dead_letters
+
+
+
 
 
 @pytest.fixture(autouse=True)
@@ -297,3 +323,95 @@ def test_log_estruturado_nao_expoe_email_ou_telefone(monkeypatch, capsys):
     assert "customer_identifier" in captured
     assert VALID_LOUS_BODY["customer"]["email"] not in captured
     assert VALID_LOUS_BODY["customer"]["phone"] not in captured
+
+
+def test_webhook_lous_aprovado_publica_em_lead_received(monkeypatch, mock_rabbitmq_publish):
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 100)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=VALID_LOUS_BODY,
+    )
+
+    assert response["status"] == "validated"
+    assert response["published_queue"] == "lead.received"
+
+    assert len(mock_rabbitmq_publish) == 1
+    assert mock_rabbitmq_publish[0]["queue_name"] == "lead.received"
+    assert mock_rabbitmq_publish[0]["message"]["transaction_id"] == VALID_LOUS_BODY["transaction_id"]
+
+
+def test_webhook_lous_schema_invalido_publica_em_dlq_schema(monkeypatch, mock_rabbitmq_publish):
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 101)
+
+    captured_update = {}
+
+    def fake_update_raw_payload_result(**kwargs):
+        captured_update.update(kwargs)
+
+    monkeypatch.setattr(service, "update_raw_payload_result", fake_update_raw_payload_result)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body={"hello": "world"},
+    )
+
+    assert response["status"] == "schema_failed"
+    assert response["published_queue"] == "lead.dead.schema_failed"
+    assert captured_update["error_reason"].startswith("schema_failed")
+
+    assert len(mock_rabbitmq_publish) == 1
+    assert mock_rabbitmq_publish[0]["queue_name"] == "lead.dead.schema_failed"
+
+
+def test_webhook_grummer_decrypt_falhou_publica_em_dlq_decrypt(monkeypatch, mock_rabbitmq_publish):
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 102)
+
+    captured_update = {}
+
+    def fake_update_raw_payload_result(**kwargs):
+        captured_update.update(kwargs)
+
+    monkeypatch.setattr(service, "update_raw_payload_result", fake_update_raw_payload_result)
+
+    response = service.receive_webhook(
+        gateway="grummer",
+        headers={},
+        body={"iv": "abc", "ciphertext": "def"},
+    )
+
+    assert response["status"] == "decrypt_failed"
+    assert response["published_queue"] == "lead.dead.decrypt_failed"
+    assert captured_update["error_reason"].startswith("decrypt_failed")
+
+    assert len(mock_rabbitmq_publish) == 1
+    assert mock_rabbitmq_publish[0]["queue_name"] == "lead.dead.decrypt_failed"
+
+
+def test_webhook_status_nao_aprovado_descarta_sem_publicar(monkeypatch, mock_rabbitmq_publish):
+    body = {
+        **VALID_LOUS_BODY,
+        "event": "order.declined",
+        "payment": {
+            **VALID_LOUS_BODY["payment"],
+            "status": "declined",
+        },
+    }
+
+    monkeypatch.setattr(service, "insert_raw_payload", lambda **kwargs: 103)
+    monkeypatch.setattr(service, "update_raw_payload_result", lambda **kwargs: None)
+
+    response = service.receive_webhook(
+        gateway="lous",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+
+    assert response["status"] == "discarded"
+    assert response["published_queue"] is None
+    assert response["should_publish_to_lead_queue"] is False
+    assert mock_rabbitmq_publish == []
+
