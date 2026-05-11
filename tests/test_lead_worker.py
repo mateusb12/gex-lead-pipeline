@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from source.features.leads import worker
@@ -30,6 +32,10 @@ LEAD_RECEIVED_MESSAGE = {
         "status": "approved",
     },
 }
+
+
+def _body(payload: dict) -> bytes:
+    return json.dumps(payload).encode("utf-8")
 
 
 def test_worker_persiste_lead_received_e_publica_quatro_eventos_de_distribuicao(monkeypatch):
@@ -179,6 +185,7 @@ def test_worker_publica_mensagem_falhada_na_dlq_do_consumer(monkeypatch):
     assert inserted_dead_letters[0]["source"] == "lead.worker"
     assert inserted_dead_letters[0]["reason"] == "consumer_failed"
     assert inserted_dead_letters[0]["payload"] == payload
+    assert inserted_dead_letters[0]["error_detail"] == "permanent database error"
 
     assert published_messages[0]["queue_name"] == "lead.dead.consumer_failed"
     assert published_messages[0]["message"] == payload
@@ -197,10 +204,12 @@ class FakeRabbitChannel:
         self.acked.append(delivery_tag)
 
     def basic_nack(self, *, delivery_tag, requeue):
-        self.nacked.append({
-            "delivery_tag": delivery_tag,
-            "requeue": requeue,
-        })
+        self.nacked.append(
+            {
+                "delivery_tag": delivery_tag,
+                "requeue": requeue,
+            }
+        )
 
 
 def test_consumer_da_ack_quando_processa_com_sucesso(monkeypatch):
@@ -217,9 +226,18 @@ def test_consumer_da_ack_quando_processa_com_sucesso(monkeypatch):
 
     monkeypatch.setattr(worker, "process_lead_received_message_with_retry", fake_process_with_retry)
 
-    body = b'{\n        "correlation_id": "TEST-ACK",\n        "raw_payload_id": 1,\n        "gateway": "lous",\n        "transaction_id": "TEST-ACK",\n        "event": "order.approved",\n        "customer": {"email": "test@example.com"}\n    }'.encode("utf-8")
+    body = _body(
+        {
+            "correlation_id": "TEST-ACK",
+            "raw_payload_id": 1,
+            "gateway": "lous",
+            "transaction_id": "TEST-ACK",
+            "event": "order.approved",
+            "customer": {"email": "test@example.com"},
+        }
+    )
 
-    worker._consume_lead_received(channel, FakeMethod(), None, body)
+    worker._consume_lead_received_from_queue(channel, FakeMethod(), None, body)
 
     assert channel.acked == ["fake-delivery-tag"]
     assert channel.nacked == []
@@ -238,12 +256,21 @@ def test_consumer_da_ack_quando_envia_falha_para_dlq(monkeypatch):
     monkeypatch.setattr(worker, "process_lead_received_message_with_retry", fake_process_with_retry)
     monkeypatch.setattr(worker, "_send_lead_worker_failure_to_dlq", fake_send_to_dlq)
 
-    body = b'{\n        "correlation_id": "TEST-DLQ-ACK",\n        "raw_payload_id": 1,\n        "gateway": "lous",\n        "transaction_id": "TEST-DLQ-ACK",\n        "event": "order.approved"\n    }'.encode("utf-8")
+    body = _body(
+        {
+            "correlation_id": "TEST-DLQ-ACK",
+            "raw_payload_id": 1,
+            "gateway": "lous",
+            "transaction_id": "TEST-DLQ-ACK",
+            "event": "order.approved",
+        }
+    )
 
-    worker._consume_lead_received(channel, FakeMethod(), None, body)
+    worker._consume_lead_received_from_queue(channel, FakeMethod(), None, body)
 
     assert len(sent_to_dlq) == 1
     assert sent_to_dlq[0]["payload"]["correlation_id"] == "TEST-DLQ-ACK"
+    assert sent_to_dlq[0]["error_detail"] == "consumer failed"
     assert channel.acked == ["fake-delivery-tag"]
     assert channel.nacked == []
 
@@ -260,9 +287,17 @@ def test_consumer_da_nack_sem_requeue_quando_dlq_tambem_falha(monkeypatch):
     monkeypatch.setattr(worker, "process_lead_received_message_with_retry", fake_process_with_retry)
     monkeypatch.setattr(worker, "_send_lead_worker_failure_to_dlq", fake_send_to_dlq)
 
-    body = b'{\n        "correlation_id": "TEST-DLQ-FAILED",\n        "raw_payload_id": 1,\n        "gateway": "lous",\n        "transaction_id": "TEST-DLQ-FAILED",\n        "event": "order.approved"\n    }'.encode("utf-8")
+    body = _body(
+        {
+            "correlation_id": "TEST-DLQ-FAILED",
+            "raw_payload_id": 1,
+            "gateway": "lous",
+            "transaction_id": "TEST-DLQ-FAILED",
+            "event": "order.approved",
+        }
+    )
 
-    worker._consume_lead_received(channel, FakeMethod(), None, body)
+    worker._consume_lead_received_from_queue(channel, FakeMethod(), None, body)
 
     assert channel.acked == []
     assert channel.nacked == [

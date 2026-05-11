@@ -1,4 +1,5 @@
 import hashlib
+import re
 import json
 from typing import Any
 
@@ -17,4 +18,25 @@ def log_json(event_type: str, **fields: Any) -> None:
         **fields,
     }
 
-    print(json.dumps(payload, ensure_ascii=False, default=str))
+    print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
+
+
+def safe_log_error_detail(error: Exception | str, *, max_length: int = 300) -> str:
+    message = str(error).splitlines()[0]
+
+    message = re.sub(
+        r"[^@\s]+@[^@\s]+\.[^@\s]+",
+        "[redacted_email]",
+        message,
+    )
+
+    message = re.sub(
+        r"\+?\d[\d\s().-]{7,}\d",
+        "[redacted_phone]",
+        message,
+    )
+
+    if len(message) > max_length:
+        return message[:max_length] + "..."
+
+    return message

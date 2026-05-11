@@ -15,7 +15,7 @@ from source.shared.rabbitmq import (
     LEAD_RECEIVED_QUEUE,
     publish_json,
 )
-from source.shared.structured_logging import anonymize_identifier, log_json
+from source.shared.structured_logging import anonymize_identifier, log_json, safe_log_error_detail
 
 LEAD_CONSUMER_RETRY_DELAYS_SECONDS = (1, 4, 16)
 
@@ -103,7 +103,7 @@ def process_lead_received_message_with_retry(
                 next_attempt=attempt + 1,
                 delay_seconds=delay_seconds,
                 error=type(exc).__name__,
-                error_detail=str(exc),
+                error_detail=safe_log_error_detail(exc),
             )
 
             time.sleep(delay_seconds)
@@ -111,13 +111,20 @@ def process_lead_received_message_with_retry(
 
 
 def _consume_lead_received_from_queue(channel, method, properties, body: bytes) -> None:
+    started_at = time.perf_counter()
     message: dict[str, Any] | None = None
 
     try:
         message = json.loads(body.decode("utf-8"))
         result = process_lead_received_message_with_retry(message)
 
-        _log_lead_worker_result(message=message, result=result, status="processed")
+        latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        _log_lead_worker_result(
+            message=message,
+            result=result,
+            status="processed",
+            latency_ms=latency_ms,
+        )
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -132,7 +139,7 @@ def _consume_lead_received_from_queue(channel, method, properties, body: bytes) 
         try:
             _send_lead_worker_failure_to_dlq(
                 payload=dlq_payload,
-                error_detail=error_detail,
+                error_detail=safe_log_error_detail(exc),
             )
 
             log_json(
@@ -144,7 +151,7 @@ def _consume_lead_received_from_queue(channel, method, properties, body: bytes) 
                 transaction_id=dlq_payload.get("transaction_id"),
                 queue_name=LEAD_DEAD_CONSUMER_FAILED_QUEUE,
                 error=type(exc).__name__,
-                error_detail=error_detail,
+                error_detail=safe_log_error_detail(exc),
             )
 
             channel.basic_ack(delivery_tag=method.delivery_tag)
@@ -158,9 +165,9 @@ def _consume_lead_received_from_queue(channel, method, properties, body: bytes) 
                 event=dlq_payload.get("event"),
                 transaction_id=dlq_payload.get("transaction_id"),
                 error=type(dlq_exc).__name__,
-                error_detail=str(dlq_exc),
+                error_detail=safe_log_error_detail(dlq_exc),
                 original_error=type(exc).__name__,
-                original_error_detail=error_detail,
+                original_error_detail=safe_log_error_detail(exc),
             )
 
             channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
@@ -215,7 +222,13 @@ def _send_lead_worker_failure_to_dlq(
     )
 
 
-def _log_lead_worker_result(*, message: dict[str, Any], result: dict[str, Any], status: str) -> None:
+def _log_lead_worker_result(
+    *,
+    message: dict[str, Any],
+    result: dict[str, Any],
+    status: str,
+    latency_ms: float | None = None,
+) -> None:
     customer = message.get("customer") or {}
     customer_identifier = None
 
@@ -232,6 +245,7 @@ def _log_lead_worker_result(*, message: dict[str, Any], result: dict[str, Any], 
         order_id=result.get("order_id"),
         lead_id=result.get("lead_id"),
         attempts=result.get("attempts"),
+        latency_ms=latency_ms,
         gateway_to_db_lag_seconds=result.get("gateway_to_db_lag_seconds"),
         customer_identifier=customer_identifier,
     )
