@@ -10,6 +10,7 @@ from source.shared.config import settings
 LEAD_RECEIVED_QUEUE = "lead.received"
 LEAD_DEAD_DECRYPT_FAILED_QUEUE = "lead.dead.decrypt_failed"
 LEAD_DEAD_SCHEMA_FAILED_QUEUE = "lead.dead.schema_failed"
+LEAD_DEAD_CONSUMER_FAILED_QUEUE = "lead.dead.consumer_failed"
 
 DIST_SMS_QUEUE = "dist.sms"
 DIST_EMAIL_QUEUE = "dist.email"

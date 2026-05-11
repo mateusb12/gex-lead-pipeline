@@ -6,7 +6,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from source.features.webhooks.schemas import SalesEventPayload
 from source.shared.db import get_engine
-from source.shared.tables import distribution_status, lead_events, leads, orders
+from source.shared.tables import distribution_status, lead_dead_letter, lead_events, leads, orders
 
 DISTRIBUTION_CHANNELS = ("SMS", "EMAIL", "CALL_CENTER", "WHATSAPP")
 
@@ -178,3 +178,23 @@ def _ensure_utc(value: datetime) -> datetime:
 
 def _to_mysql_datetime(value: datetime) -> datetime:
     return _ensure_utc(value).replace(tzinfo=None)
+
+
+def insert_lead_worker_dead_letter(
+    *,
+    source: str,
+    reason: str,
+    payload: dict[str, Any],
+    error_detail: str,
+) -> int:
+    statement = lead_dead_letter.insert().values(
+        source=source,
+        reason=reason,
+        payload=payload,
+        error_detail=error_detail,
+    )
+
+    with get_engine().begin() as connection:
+        result = connection.execute(statement)
+
+    return int(result.lastrowid)
