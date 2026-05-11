@@ -1,7 +1,7 @@
 import json
 import random
 import time
-import urllib.request
+import requests
 from typing import Any
 
 from source.features.distribution.repository import insert_sms_dead_letter_in_db, mark_sms_as_delivered_in_db
@@ -106,15 +106,14 @@ def _post_sms_payload_to_webhook_site(message: dict[str, Any]) -> int:
         "message": f"Thanks for your order of {product.get('name', 'your product')}.",
     }
 
-    request = urllib.request.Request(
+    response = requests.post(
         settings.sms_webhook_url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        json=payload,
+        timeout=POST_TIMEOUT_SECONDS,
     )
+    response.raise_for_status()
 
-    with urllib.request.urlopen(request, timeout=POST_TIMEOUT_SECONDS) as response:
-        return int(response.status)
+    return int(response.status_code)
 
 
 def _consume_sms_from_queue(channel, method, properties, body: bytes) -> None:

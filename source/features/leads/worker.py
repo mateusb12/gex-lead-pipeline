@@ -25,7 +25,6 @@ def main() -> None:
         extra_queues=(LEAD_DEAD_CONSUMER_FAILED_QUEUE,),
     )
 
-    print(f"lead worker started. consuming queue={LEAD_RECEIVED_QUEUE}")
 
 
 def process_lead_received_message(message: dict[str, Any]) -> dict[str, Any]:
