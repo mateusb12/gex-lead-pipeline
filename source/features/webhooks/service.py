@@ -159,7 +159,7 @@ def _reject_payload_with_decrypt_error(
     error_reason = f"decrypt_failed: {reason}"
     update_raw_payload_result(raw_payload_id=raw_payload_id, error_reason=error_reason)
 
-    _persist_and_enqueue_receiver_dlq(
+    _send_receiver_failure_to_dlq(
         queue_name=LEAD_DEAD_DECRYPT_FAILED_QUEUE,
         source="receiver.decrypt",
         reason="decrypt_failed",
@@ -206,7 +206,7 @@ def _reject_payload_with_schema_error(
         error_reason=error_reason,
     )
 
-    _persist_and_enqueue_receiver_dlq(
+    _send_receiver_failure_to_dlq(
         queue_name=LEAD_DEAD_SCHEMA_FAILED_QUEUE,
         source="receiver.schema",
         reason="schema_failed",
@@ -331,7 +331,7 @@ def _enqueue_validated_lead(
     )
 
 
-def _persist_and_enqueue_receiver_dlq(
+def _send_receiver_failure_to_dlq(
     *,
     queue_name: str,
     source: str,
