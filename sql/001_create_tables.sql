@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS leads (
 
 CREATE TABLE IF NOT EXISTS orders (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    lead_id BIGINT NULL,
+    lead_id BIGINT NOT NULL,
     gateway VARCHAR(32) NOT NULL,
     transaction_id VARCHAR(120) NOT NULL,
     product_id VARCHAR(120) NULL,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS lead_events (
     order_id BIGINT NOT NULL,
     correlation_id CHAR(36) NOT NULL,
     event VARCHAR(120) NOT NULL,
-    transaction_time TIMESTAMP(6) NULL,
+    transaction_time TIMESTAMP(6) NOT NULL,
     persisted_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     gateway_to_db_lag_seconds INT NULL,
     UNIQUE KEY uk_lead_events_order_event (order_id, event),
