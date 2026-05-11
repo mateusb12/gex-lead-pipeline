@@ -106,6 +106,8 @@ assets/
 
 Esses arquivos são usados apenas como entrada local para validar a esteira contra o benchmark fornecido no teste.
 
+O decrypt do Grummer usa `GRUMMER_SECRET_HEX` quando definido; caso contrário, lê `assets/grummer_secret.txt`. Não há chave criptográfica default no código.
+
 A pasta `assets/` fica fora do contexto do Repomix e fora do Git, evitando expor payloads, gabaritos ou secrets do processo seletivo.
 
 ---
