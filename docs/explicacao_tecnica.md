@@ -199,6 +199,7 @@ A modelagem foi pensada para separar payload bruto recebido, chave de idempotên
 | `uk_leads_email (email)` | evita cliente duplicado por e-mail |
 | `uk_orders_gateway_transaction (gateway, transaction_id)` | impede duplicar o mesmo pedido no mesmo gateway |
 | `uk_lead_events_order_event (order_id, event)` | impede repetir o mesmo evento operacional para o mesmo pedido |
+| `idx_lead_events_event_persisted_order (event, persisted_at, order_id)` | ajuda a reconciliação por evento aprovado e período; também carrega `order_id` para o join com `distribution_status` |
 | `uk_distribution_order_channel (order_id, channel)` | garante uma linha de status por pedido e canal |
 | `idx_distribution_status_status_created (status, created_at)` | ajuda consultas de pendências por status e tempo |
 | `idx_distribution_status_channel_status_delivered (channel, status, delivered_at, order_id)` | ajuda a consulta de SMS entregue por canal, status e janela de entrega; `order_id` também apoia os joins com pedido e evento |
@@ -217,7 +218,7 @@ Resumo dos `EXPLAIN ANALYZE` das queries de auditoria:
 | Pendentes há mais de 5 min | Varre `distribution_status` e filtra `status = pending` + `created_at`; no dataset pequeno o MySQL preferiu table scan, mas o índice `(status, created_at)` cobre esse padrão em volumes maiores | ~0,5 ms |
 | Sucesso SMS por produto/hora | Começa em `distribution_status` filtrando `channel = SMS`, faz lookup por PK em `orders` e agrega por hora e produto; no dataset pequeno o MySQL usou o índice que começa por `channel` e processou 135 linhas SMS | ~0,6 ms |
 | DLQ por motivo | Usa covering index em `lead_dead_letter` com `(reason, created_at)`, filtra últimas 24h e agrupa por motivo | ~0,1 ms |
-| Reconciliação approved vs SMS | A preencher | A preencher |
+| Reconciliação approved vs SMS | Usa covering index em `lead_events` por `(event, persisted_at, order_id)` e lookup único em `distribution_status` por `(order_id, channel)` | ~0,5 ms |
 
 ---
 

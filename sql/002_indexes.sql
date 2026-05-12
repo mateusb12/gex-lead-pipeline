@@ -12,3 +12,6 @@ CREATE INDEX idx_distribution_status_channel_status_delivered
 
 CREATE INDEX idx_distribution_status_channel_created
     ON distribution_status (channel, created_at, order_id, status);
+
+CREATE INDEX idx_lead_events_event_persisted_order
+    ON lead_events (event, persisted_at, order_id);

@@ -77,3 +77,32 @@ FROM lead_dead_letter ldl
 WHERE ldl.created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
 GROUP BY ldl.reason
 ORDER BY total_dlq_entries DESC, ldl.reason;
+
+-- 5. Reconciliação: aprovados em lead_events vs delivered em SMS,
+-- por dia, nos últimos 7 dias.
+-- Usa persisted_at como data de reconciliação para comparar o mesmo cohort aprovado.
+
+WITH daily_reconciliation AS (
+    SELECT
+        DATE(le.persisted_at) AS event_day,
+        COUNT(*) AS approved_leads,
+        SUM(CASE WHEN ds.status = 'delivered' THEN 1 ELSE 0 END) AS sms_delivered
+    FROM lead_events le
+    LEFT JOIN distribution_status ds
+        ON ds.order_id = le.order_id
+       AND ds.channel = 'SMS'
+    WHERE le.event = 'order.approved'
+      AND le.persisted_at >= UTC_DATE() - INTERVAL 6 DAY
+    GROUP BY DATE(le.persisted_at)
+)
+SELECT
+    event_day,
+    approved_leads,
+    sms_delivered,
+    approved_leads - sms_delivered AS absolute_gap,
+    ROUND(
+        100 * (approved_leads - sms_delivered) / NULLIF(approved_leads, 0),
+        2
+    ) AS gap_percent
+FROM daily_reconciliation
+ORDER BY event_day DESC;
