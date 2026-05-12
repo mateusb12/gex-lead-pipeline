@@ -52,10 +52,10 @@ def get_raw_payloads(limit: int = 10) -> dict[str, Any]:
 
 
 def clear_debug_database(*, confirm: bool = False) -> dict[str, Any]:
-    if settings.app_env != "local":
+    if not settings.is_debug_env:
         return {
             "status": "blocked",
-            "message": "Database cleanup is only allowed when APP_ENV=local.",
+            "message": "Database cleanup is only allowed when APP_ENV=local, dev, or debug.",
         }
 
     if not confirm:

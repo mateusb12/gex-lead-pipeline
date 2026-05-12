@@ -5,6 +5,7 @@ import requests
 from typing import Any
 
 from source.features.distribution.repository import insert_sms_dead_letter_in_db, mark_sms_as_delivered_in_db
+from source.features.distribution.webhook_site import create_webhook_site_url
 from source.shared.config import settings
 from source.shared.rabbitmq import DIST_DEAD_SMS_QUEUE, DIST_SMS_QUEUE, publish_json, start_consumer
 from source.shared.structured_logging import anonymize_identifier, log_json, safe_log_error_detail
@@ -12,6 +13,7 @@ from source.shared.structured_logging import anonymize_identifier, log_json, saf
 RETRY_DELAYS_SECONDS = (1, 4, 16)
 RANDOM_FAILURE_RATE = 0.10
 POST_TIMEOUT_SECONDS = 10
+_generated_dev_sms_webhook_url: str | None = None
 
 
 def main() -> None:
@@ -87,9 +89,29 @@ def deliver_sms_distribution_message(message: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _get_sms_webhook_url() -> str:
+    global _generated_dev_sms_webhook_url
+
+    if settings.sms_webhook_url:
+        return settings.sms_webhook_url
+
+    if settings.is_debug_env:
+        if not _generated_dev_sms_webhook_url:
+            _generated_dev_sms_webhook_url = create_webhook_site_url()
+
+            log_json(
+                "dev_sms_webhook_site_url_created",
+                status="created",
+                sms_webhook_url=_generated_dev_sms_webhook_url,
+            )
+
+        return _generated_dev_sms_webhook_url
+
+    raise RuntimeError("SMS webhook URL is not configured")
+
+
 def _post_sms_payload_to_webhook_site(message: dict[str, Any]) -> int:
-    if not settings.sms_webhook_url:
-        raise RuntimeError("SMS_WEBHOOK_URL is not configured")
+    sms_webhook_url = _get_sms_webhook_url()
 
     customer = message.get("customer") or {}
     product = message.get("product") or {}
@@ -107,7 +129,7 @@ def _post_sms_payload_to_webhook_site(message: dict[str, Any]) -> int:
     }
 
     response = requests.post(
-        settings.sms_webhook_url,
+        sms_webhook_url,
         json=payload,
         timeout=POST_TIMEOUT_SECONDS,
     )

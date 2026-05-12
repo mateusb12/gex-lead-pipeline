@@ -22,5 +22,9 @@ class Settings(BaseSettings):
         host = f"{self.mysql_host}:{self.mysql_port}"
         return f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}@{host}/{self.mysql_database}"
 
+    @property
+    def is_debug_env(self) -> bool:
+        return self.app_env in {"local", "dev", "debug"}
+
 
 settings = Settings()

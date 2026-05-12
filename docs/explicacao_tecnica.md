@@ -145,6 +145,8 @@ A URL não fica hardcoded no código. Ela é configurada por variável de ambien
 
 Preferi variável de ambiente porque dá para trocar o webhook.site sem alterar código. Usei `requests` no POST porque fica legível e suficiente para esse distribuidor mock.
 
+Também adicionei uma conveniência de desenvolvimento: em `local/dev/debug`, quando `SMS_WEBHOOK_URL` está vazio, o distribuidor cria uma URL real do webhook.site automaticamente para facilitar o E2E; fora desses ambientes, a URL continua obrigatória.
+
 O distribuidor simula 10% de falha aleatória. Quando dá erro, ele tenta novamente com backoff. Se mesmo assim falhar, manda para `dist.dead.sms` e registra a falha em `lead_dead_letter`.
 
 Quando dá certo, ele atualiza a linha `SMS` em `distribution_status` com:

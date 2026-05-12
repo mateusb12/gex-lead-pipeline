@@ -1,4 +1,17 @@
-from sqlalchemy import BigInteger, CHAR, JSON, Column, ForeignKey, Integer, MetaData, Numeric, String, Table, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CHAR,
+    JSON,
+    Column,
+    ForeignKey,
+    Integer,
+    MetaData,
+    Numeric,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.mysql import TIMESTAMP
 
 metadata = MetaData()
