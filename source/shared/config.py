@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_env: str = "local"
+    app_env: str = "production"
 
     mysql_host: str = "localhost"
     mysql_port: int = 3306
