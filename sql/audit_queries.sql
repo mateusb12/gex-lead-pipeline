@@ -65,3 +65,15 @@ GROUP BY
 ORDER BY
     hour_bucket_utc DESC,
     o.product_name;
+
+-- 4. Leads/entradas em DLQ por motivo, nas últimas 24h.
+
+SELECT
+    ldl.reason,
+    COUNT(*) AS total_dlq_entries,
+    MIN(ldl.created_at) AS first_seen_at,
+    MAX(ldl.created_at) AS last_seen_at
+FROM lead_dead_letter ldl
+WHERE ldl.created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+GROUP BY ldl.reason
+ORDER BY total_dlq_entries DESC, ldl.reason;
