@@ -214,11 +214,13 @@ Resumo dos `EXPLAIN ANALYZE` das queries de auditoria:
 
 | Query | Plano observado | Tempo no dataset |
 |---|---|---|
-| Lag médio SMS por gateway | Começa em `distribution_status`, depois lookup por PK em `orders` e lookup único em `lead_events` por `(order_id, event)` | ~1,3 ms |
-| Pendentes há mais de 5 min | Varre `distribution_status` e filtra `status = pending` + `created_at`; no dataset pequeno o MySQL preferiu table scan, mas o índice `(status, created_at)` cobre esse padrão em volumes maiores | ~0,5 ms |
+| Lag médio SMS por gateway | Começa em `distribution_status`, depois lookup por PK em `orders` e lookup único em `lead_events` por `(order_id, event)` | ~0,3 ms |
+| Pendentes há mais de 5 min | Usa range scan em `distribution_status` com `(status, created_at)`; na coleta não havia pendências acima de 5 minutos | ~0,01 ms |
 | Sucesso SMS por produto/hora | Começa em `distribution_status` filtrando `channel = SMS`, faz lookup por PK em `orders` e agrega por hora e produto; no dataset pequeno o MySQL usou o índice que começa por `channel` e processou 135 linhas SMS | ~0,6 ms |
 | DLQ por motivo | Usa covering index em `lead_dead_letter` com `(reason, created_at)`, filtra últimas 24h e agrupa por motivo | ~0,1 ms |
 | Reconciliação approved vs SMS | Usa covering index em `lead_events` por `(event, persisted_at, order_id)` e lookup único em `distribution_status` por `(order_id, channel)` | ~0,5 ms |
+
+Os outputs completos dos `EXPLAIN ANALYZE` estão em `docs/audit_explains.md`.
 
 ---
 
