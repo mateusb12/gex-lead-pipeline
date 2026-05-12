@@ -47,7 +47,9 @@ Roteamento de saída:
 | Status diferente de `approved` | descarta do fluxo principal, mas mantém em `raw_payloads` |
 | Payload duplicado | retorna sucesso operacional sem republicar |
 
-O worker de leads consome `lead.received` e grava `leads`, `orders`, `lead_events` e `distribution_status` em uma transação única. Preferi fazer assim para evitar estado pela metade. Por exemplo: gravar o pedido, mas falhar antes de criar os status de distribuição.
+O worker de leads consome `lead.received`. Como bônus, movi a gravação de `leads`, `orders` e `lead_events` para a stored procedure `sp_insert_lead(...)`, definida em `sql/003_stored_procs.sql`. Ela concentra esse núcleo em uma transação no MySQL e evita gravar lead sem pedido ou evento.
+
+O worker continua criando `distribution_status` e publicando os eventos de distribuição, porque essa parte pertence ao fanout dos canais.
 
 Depois disso, ele publica:
 
