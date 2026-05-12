@@ -208,7 +208,15 @@ A justificativa principal é deixar rápidas as consultas que o desafio pede: au
 
 Para o dataset do teste, esses índices são suficientes. Em um volume maior, eu avaliaria índices adicionais para consultas específicas de auditoria, como relatórios por `delivered_at`, produto e janela de tempo.
 
-Para a primeira query de auditoria, que calcula o lag médio entre `transaction_time` e `delivered_at` de SMS por gateway, o `EXPLAIN ANALYZE` rodou em cerca de 1,3 ms no dataset do teste. O plano começou por `distribution_status`, depois fez lookup por chave primária em `orders` e lookup único em `lead_events` usando `(order_id, event)`. O MySQL escolheu `idx_distribution_status_status_created` nesse volume pequeno, mas mantive o índice composto `(channel, status, delivered_at, order_id)` para favorecer esse padrão de consulta em volumes maiores.
+Resumo dos `EXPLAIN ANALYZE` das queries de auditoria:
+
+| Query | Plano observado | Tempo no dataset |
+|---|---|---|
+| Lag médio SMS por gateway | Começa em `distribution_status`, depois lookup por PK em `orders` e lookup único em `lead_events` por `(order_id, event)` | ~1,3 ms |
+| Pendentes há mais de 5 min | A preencher | A preencher |
+| Sucesso SMS por produto/hora | A preencher | A preencher |
+| DLQ por motivo | A preencher | A preencher |
+| Reconciliação approved vs SMS | A preencher | A preencher |
 
 ---
 
