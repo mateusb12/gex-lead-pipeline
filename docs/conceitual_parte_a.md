@@ -38,6 +38,8 @@ A janela principal deve usar `transaction_time`, porque ele representa o horári
 
 Essa é a hipótese mais forte se `raw_payloads` também tiver algo perto de 421–430 registros para a janela investigada. `raw_payloads` é o primeiro checkpoint persistente do sistema. Ele é gravado antes de decrypt, schema, idempotência e fila.
 
+![Entrada do receiver](./pictures/01-receiver-entrada.png)
+
 Se o gateway diz que houve 1.587 vendas aprovadas, mas só 430 payloads chegaram ao bruto, o problema está no caminho:
 
 ```text
@@ -64,11 +66,15 @@ Se `raw_payloads` estiver próximo de 1.587, mas `lead_events` estiver em 421, e
 
 Essa hipótese vem antes de culpar o Lead Worker. Decrypt/schema acontecem antes da publicação em `lead.received`. Se o payload morre nessa etapa, ele nunca chega ao worker e nunca vira `lead_events`.
 
+![Validação, decrypt e DLQ](./pictures/02-validacao-decrypt-dlq.png)
+
 ### 5. Lead Worker travado ou falhando ao persistir `lead_events`
 
 Essa hipótese fica forte quando `raw_payloads` está alto, DLQs de decrypt/schema estão baixas e a fila `lead.received` tem mensagens acumuladas ou sem consumo.
 
 Nesse caso, o receiver provavelmente fez seu papel. O Lead Worker não está consumindo ou não está conseguindo persistir `leads`, `orders` e `lead_events`.
+
+![Fila lead.received e Lead Worker](./pictures/04-rabbit-lead-worker.png)
 
 ## Queries SQL de diagnóstico
 
@@ -158,7 +164,7 @@ WHERE event = 'order.approved'
   AND transaction_time < '2026-05-09 00:00:00';
 ```
 
-Aqui eu aceito usar `received_at/created_at` como visão operacional rápida. A reconciliação final com o gateway precisa considerar `transaction_time`.
+Aqui eu aceito usar `received_at/created_at` como visão operacional rápida. A reconciliação final com o gateway precisa considerar `transaction_time`, pois é esse que genuinamente vai definir o horário da compra.
 
 ## Comandos RabbitMQ
 
