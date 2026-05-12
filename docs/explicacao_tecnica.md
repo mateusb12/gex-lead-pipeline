@@ -213,7 +213,7 @@ Resumo dos `EXPLAIN ANALYZE` das queries de auditoria:
 | Query | Plano observado | Tempo no dataset |
 |---|---|---|
 | Lag médio SMS por gateway | Começa em `distribution_status`, depois lookup por PK em `orders` e lookup único em `lead_events` por `(order_id, event)` | ~1,3 ms |
-| Pendentes há mais de 5 min | A preencher | A preencher |
+| Pendentes há mais de 5 min | Varre `distribution_status` e filtra `status = pending` + `created_at`; no dataset pequeno o MySQL preferiu table scan, mas o índice `(status, created_at)` cobre esse padrão em volumes maiores | ~0,5 ms |
 | Sucesso SMS por produto/hora | A preencher | A preencher |
 | DLQ por motivo | A preencher | A preencher |
 | Reconciliação approved vs SMS | A preencher | A preencher |
