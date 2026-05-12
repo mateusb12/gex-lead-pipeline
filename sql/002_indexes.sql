@@ -6,3 +6,6 @@ CREATE INDEX idx_lead_dead_letter_reason_created
 
 CREATE INDEX idx_distribution_status_status_created
     ON distribution_status (status, created_at);
+
+CREATE INDEX idx_distribution_status_channel_status_delivered
+    ON distribution_status (channel, status, delivered_at, order_id);

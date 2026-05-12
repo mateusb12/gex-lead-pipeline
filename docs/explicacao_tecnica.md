@@ -201,11 +201,14 @@ A modelagem foi pensada para separar payload bruto recebido, chave de idempotên
 | `uk_lead_events_order_event (order_id, event)` | impede repetir o mesmo evento operacional para o mesmo pedido |
 | `uk_distribution_order_channel (order_id, channel)` | garante uma linha de status por pedido e canal |
 | `idx_distribution_status_status_created (status, created_at)` | ajuda consultas de pendências por status e tempo |
+| `idx_distribution_status_channel_status_delivered (channel, status, delivered_at, order_id)` | ajuda a consulta de SMS entregue por canal, status e janela de entrega; `order_id` também apoia os joins com pedido e evento |
 | `idx_lead_dead_letter_reason_created (reason, created_at)` | ajuda auditoria de falhas por motivo e período |
 
 A justificativa principal é deixar rápidas as consultas que o desafio pede: auditoria por período, pendências antigas, sucesso por canal, DLQs e reconciliação entre eventos aprovados e entregas.
 
 Para o dataset do teste, esses índices são suficientes. Em um volume maior, eu avaliaria índices adicionais para consultas específicas de auditoria, como relatórios por `delivered_at`, produto e janela de tempo.
+
+Para a primeira query de auditoria, que calcula o lag médio entre `transaction_time` e `delivered_at` de SMS por gateway, o `EXPLAIN ANALYZE` rodou em cerca de 1,3 ms no dataset do teste. O plano começou por `distribution_status`, depois fez lookup por chave primária em `orders` e lookup único em `lead_events` usando `(order_id, event)`. O MySQL escolheu `idx_distribution_status_status_created` nesse volume pequeno, mas mantive o índice composto `(channel, status, delivered_at, order_id)` para favorecer esse padrão de consulta em volumes maiores.
 
 ---
 
