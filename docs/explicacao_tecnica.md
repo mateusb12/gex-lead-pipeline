@@ -202,6 +202,7 @@ A modelagem foi pensada para separar payload bruto recebido, chave de idempotên
 | `uk_distribution_order_channel (order_id, channel)` | garante uma linha de status por pedido e canal |
 | `idx_distribution_status_status_created (status, created_at)` | ajuda consultas de pendências por status e tempo |
 | `idx_distribution_status_channel_status_delivered (channel, status, delivered_at, order_id)` | ajuda a consulta de SMS entregue por canal, status e janela de entrega; `order_id` também apoia os joins com pedido e evento |
+| `idx_distribution_status_channel_created (channel, created_at, order_id, status)` | ajuda a consulta de taxa de sucesso de SMS por produto e hora; filtra canal e janela de criação, e já carrega `order_id` para o join com `orders` |
 | `idx_lead_dead_letter_reason_created (reason, created_at)` | ajuda auditoria de falhas por motivo e período |
 
 A justificativa principal é deixar rápidas as consultas que o desafio pede: auditoria por período, pendências antigas, sucesso por canal, DLQs e reconciliação entre eventos aprovados e entregas.
@@ -214,7 +215,7 @@ Resumo dos `EXPLAIN ANALYZE` das queries de auditoria:
 |---|---|---|
 | Lag médio SMS por gateway | Começa em `distribution_status`, depois lookup por PK em `orders` e lookup único em `lead_events` por `(order_id, event)` | ~1,3 ms |
 | Pendentes há mais de 5 min | Varre `distribution_status` e filtra `status = pending` + `created_at`; no dataset pequeno o MySQL preferiu table scan, mas o índice `(status, created_at)` cobre esse padrão em volumes maiores | ~0,5 ms |
-| Sucesso SMS por produto/hora | A preencher | A preencher |
+| Sucesso SMS por produto/hora | Começa em `distribution_status` filtrando `channel = SMS`, faz lookup por PK em `orders` e agrega por hora e produto; no dataset pequeno o MySQL usou o índice que começa por `channel` e processou 135 linhas SMS | ~0,6 ms |
 | DLQ por motivo | A preencher | A preencher |
 | Reconciliação approved vs SMS | A preencher | A preencher |
 
