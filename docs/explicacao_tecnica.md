@@ -159,7 +159,16 @@ delivered_at = horário da entrega
 db_to_channel_lag_seconds = lag entre criação no DB e entrega no canal
 ```
 
-A tabela `lead_dead_letter` foi mantida com esse nome por aderência ao enunciado do desafio. Na prática, ela funciona como a DLQ persistida da esteira inteira.
+A tabela `lead_dead_letter` foi mantida com esse nome por aderência ao enunciado do desafio. Na prática, ela funciona como a DLQ persistida da esteira inteira. O campo `source` registra a origem/canal da falha, por exemplo:
+
+```text
+receiver.decrypt
+receiver.schema
+lead.worker
+distribution.sms
+```
+
+Assim, o par `source + reason` separa falhas de entrada, processamento e distribuição sem alterar o schema.
 
 ### Logs estruturados
 
@@ -255,6 +264,5 @@ O fluxo principal está implementado com receiver, decrypt, schema, normalizaç�
 O que eu deixaria como evolução:
 
 - implementar distribuidores reais para EMAIL, CALL_CENTER e WHATSAPP;
-- finalizar os EXPLAINs das queries de auditoria;
 - adicionar métricas Prometheus;
 - adicionar tracing distribuído usando o `correlation_id`.
