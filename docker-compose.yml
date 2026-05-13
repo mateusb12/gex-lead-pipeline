@@ -9,6 +9,7 @@ services:
       - .:/app
     environment:
       APP_ENV: ${APP_ENV:-production}
+      GRUMMER_SECRET_HEX: ${GRUMMER_SECRET_HEX:-}
       PYTHONDONTWRITEBYTECODE: 1
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
