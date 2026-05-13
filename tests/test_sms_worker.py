@@ -73,6 +73,66 @@ def test_get_sms_webhook_url_falha_em_production_sem_url(monkeypatch):
         sms_worker._get_sms_webhook_url()
 
 
+def test_main_falha_em_production_sem_sms_webhook_url_e_nao_chama_start_consumer(monkeypatch):
+    start_consumer_calls = []
+
+    monkeypatch.setattr(sms_worker.settings, "sms_webhook_url", "")
+    monkeypatch.setattr(sms_worker.settings, "app_env", "production")
+    monkeypatch.setattr(sms_worker, "start_consumer", lambda **kwargs: start_consumer_calls.append(kwargs))
+
+    with pytest.raises(RuntimeError, match="SMS webhook URL is not configured"):
+        sms_worker.main()
+
+    assert start_consumer_calls == []
+
+
+def test_main_em_dev_sem_sms_webhook_url_gera_url_dinamica_e_chama_start_consumer(monkeypatch):
+    start_consumer_calls = []
+    create_webhook_calls = []
+
+    def fake_create_webhook_site_url():
+        create_webhook_calls.append(True)
+        return "https://webhook.site/generated-token"
+
+    monkeypatch.setattr(sms_worker.settings, "sms_webhook_url", "")
+    monkeypatch.setattr(sms_worker.settings, "app_env", "dev")
+    monkeypatch.setattr(sms_worker, "create_webhook_site_url", fake_create_webhook_site_url)
+    monkeypatch.setattr(sms_worker, "start_consumer", lambda **kwargs: start_consumer_calls.append(kwargs))
+    monkeypatch.setattr(sms_worker, "log_json", lambda *args, **kwargs: None)
+
+    sms_worker.main()
+
+    assert create_webhook_calls == [True]
+    assert start_consumer_calls == [
+        {
+            "queue_name": sms_worker.DIST_SMS_QUEUE,
+            "on_message_callback": sms_worker._consume_sms_from_queue,
+            "extra_queues": (sms_worker.DIST_DEAD_SMS_QUEUE,),
+        }
+    ]
+
+
+def test_main_com_sms_webhook_url_configurado_chama_start_consumer_sem_gerar_url_dinamica(monkeypatch):
+    start_consumer_calls = []
+    create_webhook_calls = []
+
+    monkeypatch.setattr(sms_worker.settings, "sms_webhook_url", "https://example.com/sms")
+    monkeypatch.setattr(sms_worker.settings, "app_env", "production")
+    monkeypatch.setattr(sms_worker, "create_webhook_site_url", lambda: create_webhook_calls.append(True))
+    monkeypatch.setattr(sms_worker, "start_consumer", lambda **kwargs: start_consumer_calls.append(kwargs))
+
+    sms_worker.main()
+
+    assert create_webhook_calls == []
+    assert start_consumer_calls == [
+        {
+            "queue_name": sms_worker.DIST_SMS_QUEUE,
+            "on_message_callback": sms_worker._consume_sms_from_queue,
+            "extra_queues": (sms_worker.DIST_DEAD_SMS_QUEUE,),
+        }
+    ]
+
+
 def test_post_sms_payload_to_webhook_site_usa_url_resolvida_e_retorna_status(monkeypatch):
     calls = []
     response = FakeSmsPostResponse()

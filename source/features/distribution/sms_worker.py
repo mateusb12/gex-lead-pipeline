@@ -17,6 +17,7 @@ _generated_dev_sms_webhook_url: str | None = None
 
 
 def main() -> None:
+    _get_sms_webhook_url()
     start_consumer(
         queue_name=DIST_SMS_QUEUE,
         on_message_callback=_consume_sms_from_queue,

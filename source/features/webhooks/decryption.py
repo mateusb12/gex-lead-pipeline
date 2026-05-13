@@ -19,6 +19,10 @@ class MissingGrummerSecretError(DecryptionError):
     pass
 
 
+def validate_grummer_secret_config() -> None:
+    _load_grummer_secret_key()
+
+
 def decrypt_grummer_payload(*, iv_base64: str, ciphertext_base64: str) -> dict[str, Any]:
     key = _load_grummer_secret_key()
 
@@ -27,9 +31,6 @@ def decrypt_grummer_payload(*, iv_base64: str, ciphertext_base64: str) -> dict[s
         ciphertext = base64.b64decode(ciphertext_base64, validate=True)
     except Exception as exc:
         raise DecryptionError("invalid base64 iv or ciphertext") from exc
-
-    if len(key) != 32:
-        raise DecryptionError("grummer secret must be 32 bytes for AES-256")
 
     if len(iv) != 16:
         raise DecryptionError("AES-CBC iv must be 16 bytes")
@@ -66,6 +67,11 @@ def _load_grummer_secret_key() -> bytes:
         )
 
     try:
-        return bytes.fromhex(secret_hex.strip())
+        key = bytes.fromhex(secret_hex.strip())
     except ValueError as exc:
         raise DecryptionError("grummer secret must be a valid hex string") from exc
+
+    if len(key) != 32:
+        raise DecryptionError("grummer secret must be 32 bytes for AES-256")
+
+    return key

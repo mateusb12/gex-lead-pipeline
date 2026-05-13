@@ -61,7 +61,8 @@ docs/pictures/
 - `docs/conceitual_parte_a.md`
 - `docs/conceitual_parte_b.md`
 - `docs/architecture.png`
-- `docs/evidencia_banco.md`, quando gerada com saídas reais do MySQL local
+- `docs/evidencia_banco.md`, evidência textual com saídas reais do MySQL local
+- `docs/evidencia_banco.png`, print do banco com registros inseridos
 - Loom: não versionado neste repositório
 
 ### Testes
@@ -109,7 +110,7 @@ A gravação de `leads`, `orders` e `lead_events` é feita pela stored procedure
 
 ### 1. Preparar os arquivos do desafio
 
-Os arquivos recebidos no teste não ficam versionados no Git. Como o repositório é público, achei melhor não fazer isso, pois querendo ou não são dados sensíveis da GeX.
+Os arquivos recebidos no teste não ficam versionados no Git. Como o repositório pode ser público, preferi não incluir os anexos do processo seletivo diretamente no código.
 
 Você precisa colocar os anexos em `assets/`:
 
@@ -117,9 +118,12 @@ Você precisa colocar os anexos em `assets/`:
 assets/
   webhook_payloads.json
   grummer_secret.txt
+  expected_summary.csv
 ```
 
 O decrypt do gateway `grummer` usa `GRUMMER_SECRET_HEX` quando definido nas variáveis de ambiente. Se não estiver definido, o código lê `assets/grummer_secret.txt`.
+
+`expected_summary.csv` é usado como referência de validação do resultado agregado do desafio.
 
 ### 2. Configurar webhook.site
 
@@ -149,7 +153,36 @@ SMS_WEBHOOK_URL=
 
 Nesse modo, se `SMS_WEBHOOK_URL` estiver vazia, o worker de SMS tenta gerar uma URL dinâmica automaticamente para facilitar testes locais.
 
-### 3. Subir tudo
+### 3. Configuração obrigatória e fail-fast
+
+Algumas configurações são validadas no startup para evitar uma execução aparentemente saudável, mas quebrada no meio do replay.
+
+Em `APP_ENV=production`:
+
+- a API exige `GRUMMER_SECRET_HEX` ou `assets/grummer_secret.txt` válido;
+- o `sms-distributor` exige `SMS_WEBHOOK_URL`;
+- se alguma dessas configurações estiver faltando, o serviço responsável falha cedo com erro claro.
+
+Isso é intencional. O objetivo é avisar rapidamente que falta um anexo/configuração necessária, em vez de deixar o erro aparecer só depois durante o processamento.
+
+Para diagnosticar:
+
+```bash
+docker compose ps
+docker logs gex-api
+docker logs gex-sms-distributor
+```
+
+Se quiser rodar localmente sem URL fixa do webhook.site, use:
+
+```env
+APP_ENV=dev
+SMS_WEBHOOK_URL=
+```
+
+Nesse modo, o worker de SMS tenta gerar uma URL dinâmica automaticamente.
+
+### 4. Subir tudo
 
 Primeira execução, ou quando mudar dependência/schema:
 
@@ -178,7 +211,7 @@ user: guest
 pass: guest
 ```
 
-### 4. Verificar health check
+### 5. Verificar health check
 
 ```bash
 curl http://localhost:8000/health
