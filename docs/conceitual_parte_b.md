@@ -2,87 +2,213 @@
 
 ## 1. Idempotência
 
-Eu não usaria apenas `transaction_id`. Ele identifica o pedido dentro do gateway, mas não o acontecimento de negócio. Um pedido de whey pode nascer aprovado, ser estornado depois e ainda assim continuar sendo o mesmo `transaction_id`.
+A chave não pode ser só `transaction_id`, porque `transaction_id` identifica o pedido, mas não diz qual evento aconteceu naquele pedido.
 
-A chave natural é:
+Exemplo:
+
+```text
+transaction_id = WHEY-123
+
+sexta:
+event = order.approved
+payment.status = approved
+
+segunda:
+event = order.refunded
+payment.status = refunded
+```
+
+É o mesmo pedido, mas não é o mesmo acontecimento. Se eu usar só `transaction_id`, o refund pode ser barrado como duplicado do approved. Isso seria errado.
+
+Por isso a chave natural do desafio é:
 
 ```text
 transaction_id + event
 ```
 
-Com isso:
+Com essa chave, fica assim:
 
 ```text
-WHEY-123 + order.approved -> processa uma vez
-WHEY-123 + order.approved -> duplicado
-WHEY-123 + order.refunded -> evento novo
+WHEY-123 + order.approved -> entra uma vez
+WHEY-123 + order.approved -> duplicado, não republica
+WHEY-123 + order.refunded -> entra, porque é outro evento
 ```
 
-Usar só `transaction_id` falha quando o mesmo pedido tem `declined`, `approved` e `refunded` em momentos diferentes. O segundo evento legítimo seria esmagado como se fosse retry.
+O `event` permite que o pedido tenha uma história. Ele pode ser aprovado, recusado ou estornado em momentos diferentes. O que não pode acontecer é o mesmo evento do mesmo pedido gerar o mesmo efeito duas vezes.
 
-Na implementação, incluo também `gateway`:
+Onde cada chave falha:
+
+```text
+só transaction_id
+-> falha quando o mesmo pedido tem mais de um evento válido
+
+transaction_id + event
+-> falharia se o negócio precisasse aceitar duas ocorrências iguais do mesmo evento como coisas diferentes
+```
+
+Para esse desafio, a segunda situação não é o caso esperado. A regra é justamente: o mesmo pedido pode ter eventos diferentes, mas a mesma combinação pedido + evento não deve ser processada duas vezes.
+
+Na implementação eu ainda uso:
 
 ```text
 gateway + transaction_id + event
 ```
 
-Isso evita colisão entre provedores distintos que reutilizem o mesmo identificador. A composição com `event` só falharia se o negócio quisesse tratar duas ocorrências iguais do mesmo evento como independentes, mas esse não é o caso do desafio. Aqui o objetivo é justamente bloquear o mesmo efeito repetido.
+Faço isso porque não dá para assumir que `lous` e `grummer` usam o mesmo padrão de identificador.
+
+Exemplo:
+
+```text
+lous    + WHEY-123 + order.approved
+grummer + WHEY-123 + order.approved
+```
+
+Esses dois registros podem ser vendas diferentes. Sem o `gateway`, uma venda real poderia ser ignorada só porque outro provedor usou o mesmo `transaction_id`.
+
+Então a ideia é simples: `transaction_id + event` resolve a idempotência do evento. `gateway + transaction_id + event` deixa isso seguro para múltiplos gateways.
 
 ## 2. Criptografia
 
-Para um webhook novo, eu escolheria **AES-256-GCM**. O CBC usado no Grummer é aceitável por compatibilidade, mas não autentica o conteúdo sozinho.
+Para um webhook novo da GEX, eu escolheria **AES-256-GCM**.
+
+Eu só usaria AES-256-CBC por compatibilidade com um gateway legado, como no caso do Grummer. Para um desenho novo, eu iria de GCM porque ele já é um modo autenticado.
+
+A diferença principal é:
 
 ```text
-AES-CBC -> confidencialidade; precisa de autenticação adicional
-AES-GCM -> confidencialidade + integridade autenticada
+AES-CBC
+-> cifra o conteúdo
+-> não autentica o conteúdo sozinho
+-> precisa de HMAC ou outra autenticação separada
+
+AES-GCM
+-> cifra o conteúdo
+-> autentica o conteúdo
+-> detecta alteração no payload
 ```
 
-Em dados de venda, integridade é tão importante quanto sigilo. Mudar `status`, `quantity` ou `amount` sem detecção gera lead incorreto, distorce operação e pode colocar o time comercial atrás da pessoa errada. Para legado em CBC, eu exigiria autenticação separada quando possível.
+Em webhook de venda, integridade é tão importante quanto sigilo. Não basta esconder o payload. Eu preciso saber se ele chegou exatamente como o gateway enviou.
 
-Sem MAC/autenticação, CBC permite manipulação/malleability de blocos sem detecção; se a aplicação expõe diferenças entre erro de padding e erro de decrypt, também abre espaço para padding oracle. GCM evita esses cenários ao autenticar ciphertext e tag antes de aceitar o payload.
+Exemplo com pedido de whey:
 
-No exemplo do pedido de whey, `payment.status: declined -> approved` ou `quantity: 1 -> 10` não são detalhes cosméticos. São alterações que mudam quem entra na esteira e como a operação reage. Por isso, para webhook novo, minha escolha é GCM sem hesitar.
+```text
+payment.status: declined -> approved
+quantity: 1 -> 10
+amount_usd: 49.90 -> 499.00
+product: Whey Basic -> Whey Premium
+```
+
+Se uma alteração dessas passar despercebida, a esteira pode gerar lead indevido, mandar o call center ligar para cliente errado, colocar o cliente na campanha errada ou distorcer relatório de vendas.
+
+O CBC puro é perigoso porque ele não protege sozinho contra manipulação do ciphertext. Sem MAC/autenticação, ele pode permitir alteração de blocos sem detecção adequada. Dependendo de como a aplicação responde aos erros, também pode abrir espaço para padding oracle.
+
+Com GCM, a autenticação faz parte do modo. Se alguém mexer no ciphertext ou na tag, a validação falha e o payload não entra na esteira.
+
+Resumo da decisão:
+
+```text
+Webhook novo -> AES-256-GCM
+Webhook legado exigindo CBC -> CBC + autenticação separada, se possível
+```
 
 ## 3. Backpressure
 
-Se SMS falha 90%, retry e DLQ ajudam, mas não bastam. DLQ guarda a falha individual; backpressure protege o sistema de gastar recurso infinito numa falha que virou regra. Sem isso, o sistema desperdiça worker, fila, conexões HTTP e logs tentando uma avalanche previsível.
+Se o canal SMS começa a falhar 90%, eu não trataria isso como erro individual normal.
 
-RabbitMQ + retry exponencial sozinho ainda deixa o canal ruim comandar o ritmo do sistema. Com 10 mil mensagens, 90% de falha e múltiplas tentativas, o backlog cresce, a fila fica cada vez mais velha e você segue pagando custo por uma chance de sucesso que já ficou improvável.
-
-Eu trataria SMS como canal isolado:
+Falha pontual é uma coisa:
 
 ```text
-erro pontual -> retry
-erro alto persistente -> reduzir consumo
-erro muito alto persistente -> circuit breaker/pausa do canal
-recuperação -> retomada gradual
+SMS falhou uma vez
+-> retry
+-> se esgotar, DLQ
 ```
 
-Receiver, `lead.received`, Lead Worker, banco e demais canais devem continuar vivos. A lógica se parece mais com curva de fan de GPU do que com um if isolado: a resposta sobe conforme o calor sobe. Só aplicaria backpressure mais acima se o problema do SMS começasse a degradar recursos compartilhados.
+Agora, 90% de erro é outra coisa. **A falha deixou de ser exceção e virou regra**.
 
-Enquanto a falha estiver localizada, eu reduziria o consumo de `dist.sms`, manteria os outros canais andando e abriria alerta operacional. Se o provedor recuperar, a volta também deve ser gradual; despejar todo o backlog de uma vez pode recriar a sobrecarga.
+RabbitMQ + retry exponencial + DLQ ajuda, mas não basta.
+
+DLQ responde:
+
+```text
+essa mensagem falhou, vou guardar para reprocessar depois
+```
+
+Backpressure responde:
+
+```text
+o sistema está gastando recurso demais em uma falha repetitiva
+então eu preciso desacelerar ou isolar esse canal
+```
+
+Exemplo:
+
+```text
+10.000 mensagens em dist.sms
+90% falhando
+3 retries por mensagem
+```
+
+Mesmo que tudo acabe indo para DLQ, antes disso o sistema gastou worker, conexão HTTP, tempo, CPU, memória, logs e fila tentando milhares de chamadas que provavelmente já iam falhar.
+
+Eu trataria SMS como um canal com saúde própria. A política seria parecida com uma curva de fan de GPU: 
+- você vai jogando o jogo
+- o chip gráfico vai esquentando
+- a reação do cooler muda de acordo com a temperatura
+
+```text
+erro normal
+-> processa normalmente
+
+erro alto por pouco tempo
+-> retry e observação
+
+erro alto persistente
+-> reduz consumo de dist.sms
+
+erro muito alto persistente
+-> abre circuit breaker e pausa temporariamente SMS
+
+provedor recuperou
+-> volta aos poucos
+```
+
+O ponto principal é isolar o incêndio. Se o SMS pegou fogo, eu não quero derrubar receiver, `lead.received`, Lead Worker, e-mail, call center, WhatsApp, `raw_payloads` e `lead_events` junto.
+
+Eu reduzo ou pauso o consumo de `dist.sms`, mantenho os outros canais funcionando e gero alerta operacional. Só aplicaria backpressure mais acima se o problema do SMS começasse a contaminar infraestrutura compartilhada, como RabbitMQ, MySQL, CPU ou memória.
 
 ## 4. Migração Python -> Go
 
-Eu só migraria receiver + decrypt depois de medir gargalo real. Não migraria por moda só porque Go parece uma escolha mais performática no papel.
+Eu não migraria receiver + decrypt de Python para Go por moda.
+
+A pergunta principal é:
+
+```text
+onde está o gargalo real?
+```
+
+Python faz sentido nesse projeto porque o problema tem muita integração, JSON, validação, banco, fila, logs e regra de esteira. Nesse contexto, produtividade importa muito. **Hora de dev costuma ser mais cara do que alguns milissegundos de CPU.**
+
+Eu consideraria migrar receiver + decrypt para Go se existissem sinais concretos de que Python virou o gargalo.
 
 Migraria se:
 
-1. CPU do receiver/decrypt for gargalo medido.
-2. p95/p99 subir e a fila crescer antes do RabbitMQ.
-3. custo de escalar Python ficar relevante em benchmark real com payloads da GEX.
+1. **Receiver/decrypt virou gargalo medido**: CPU alta, p95/p99 subindo, fila crescendo antes do RabbitMQ ou tempo relevante gasto em parsing/decrypt/serialização.
+2. **Custo de escalar Python ficou relevante**: muitos containers só para receber, validar e decriptar payload.
+3. **Benchmark real mostrou ganho no caminho crítico**: usando payloads da GEX, concorrência parecida com produção e volume relevante.
 
 Não migraria se:
 
-1. gargalo estiver em MySQL, RabbitMQ, rede, retry ou provedor externo.
-2. ganho vier só de microbenchmark fora do caminho crítico.
-3. a equipe entrega e depura melhor em Python e o sistema ainda atende volume/latência.
+1. **O gargalo está em I/O ou arquitetura**: MySQL, RabbitMQ, rede, provedor externo, retry mal desenhado ou falta de backpressure. Nesse caso, migrar para Go só deixa o sistema errado mais rápido.
+2. **A equipe entrega e depura melhor em Python**: se Python atende volume e latência, trocar stack aumenta complexidade sem ganho claro.
+3. **O ganho medido é pequeno ou fora do caminho crítico**: melhorar 35% de uma etapa irrelevante não paga custo de migração, manutenção, observabilidade nova e risco operacional.
 
-Esse ponto de benchmark importa. Ganhar 35% em cima de uma etapa de 2 ms que não segura a fila não paga troca de stack, observabilidade nova e custo operacional. Ganhar 35% no caminho crítico, em volume alto e com fila se formando antes do RabbitMQ, já merece conversa séria.
+Benchmark isolado não me convence. Se Go dá 35% de ganho em uma operação que dura 2ms e não segura a fila, eu não migraria. Agora, se esse ganho aparece no caminho crítico e roda em volume alto, aí começa a fazer sentido discutir.
 
-Regra prática:
+Minha regra seria simples:
 
 ```text
-gargalo de runtime -> avaliar Go
-gargalo de arquitetura ou I/O -> corrigir arquitetura ou I/O
+Se o gargalo é linguagem/runtime, considero migrar.
+Se o gargalo é arquitetura ou I/O, corrijo arquitetura/I/O.
 ```
+
+No contexto da GEX, eu só migraria depois de medir. Não por preferência pessoal.
