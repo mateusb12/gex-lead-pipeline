@@ -21,8 +21,8 @@ WHERE ds.channel = 'SMS'
 GROUP BY o.gateway
 ORDER BY o.gateway;
 
--- 2. Leads/canais em pending há mais de 5 minutos.
--- Primeiro mostra o total; depois lista order_id, canal e idade do pendente.
+-- 2. Pendências por canal em distribution_status há mais de 5 minutos.
+-- Cada linha pendente pertence a um order_id + channel; o total por pedido aparece em coluna separada.
 
 SELECT
     COUNT(*) AS total_pending_channels_over_5_min,

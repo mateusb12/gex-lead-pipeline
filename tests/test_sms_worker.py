@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from source.features.distribution import sms_worker
 
@@ -111,3 +112,88 @@ def test_post_sms_payload_to_webhook_site_usa_url_resolvida_e_retorna_status(mon
             },
         }
     ]
+
+
+def test_deliver_sms_distribution_message_with_retry_tenta_ate_sucesso(monkeypatch):
+    attempts = []
+    sleeps = []
+
+    def fake_deliver(message):
+        attempts.append(message["transaction_id"])
+        if len(attempts) < 3:
+            raise RuntimeError("provider offline")
+        return {"status": "delivered"}
+
+    monkeypatch.setattr(sms_worker, "deliver_sms_distribution_message", fake_deliver)
+    monkeypatch.setattr(sms_worker.time, "sleep", lambda delay: sleeps.append(delay))
+    monkeypatch.setattr(sms_worker, "log_json", lambda *args, **kwargs: None)
+
+    result = sms_worker.deliver_sms_distribution_message_with_retry(SMS_MESSAGE)
+
+    assert attempts == ["ORD-SMS-001", "ORD-SMS-001", "ORD-SMS-001"]
+    assert sleeps == [1, 4]
+    assert result == {"status": "delivered", "attempts": 3}
+
+
+def test_consume_sms_from_queue_envia_para_dlq_apos_falha_total(monkeypatch):
+    inserted = []
+    published = []
+    acknowledgements = []
+
+    class FakeChannel:
+        def basic_ack(self, delivery_tag):
+            acknowledgements.append(("ack", delivery_tag))
+
+        def basic_nack(self, delivery_tag, requeue):
+            acknowledgements.append(("nack", delivery_tag, requeue))
+
+    monkeypatch.setattr(
+        sms_worker,
+        "deliver_sms_distribution_message_with_retry",
+        lambda message: (_ for _ in ()).throw(RuntimeError("sms unavailable")),
+    )
+    monkeypatch.setattr(sms_worker, "insert_sms_dead_letter_in_db", lambda **kwargs: inserted.append(kwargs))
+    monkeypatch.setattr(sms_worker, "publish_json", lambda **kwargs: published.append(kwargs))
+    monkeypatch.setattr(sms_worker, "log_json", lambda *args, **kwargs: None)
+
+    sms_worker._consume_sms_from_queue(
+        FakeChannel(),
+        SimpleNamespace(delivery_tag=123),
+        None,
+        b'{"correlation_id":"test-correlation-id","gateway":"lous","transaction_id":"ORD-SMS-001","event":"order.approved","order_id":20,"channel":"SMS"}',
+    )
+
+    assert acknowledgements == [("ack", 123)]
+    assert inserted[0]["payload"]["source"] == "distribution.sms"
+    assert inserted[0]["payload"]["reason"] == "sms_delivery_failed"
+    assert published == [
+        {
+            "queue_name": sms_worker.DIST_DEAD_SMS_QUEUE,
+            "message": inserted[0]["payload"],
+        }
+    ]
+
+
+def test_deliver_sms_distribution_message_marca_sms_como_delivered(monkeypatch):
+    marked_orders = []
+
+    monkeypatch.setattr(sms_worker.random, "random", lambda: 1.0)
+    monkeypatch.setattr(sms_worker, "_post_sms_payload_to_webhook_site", lambda message: 202)
+    monkeypatch.setattr(
+        sms_worker,
+        "mark_sms_as_delivered_in_db",
+        lambda *, order_id: marked_orders.append(order_id) or {
+            "status": "delivered",
+            "db_to_channel_lag_seconds": 2,
+        },
+    )
+    monkeypatch.setattr(sms_worker, "log_json", lambda *args, **kwargs: None)
+
+    result = sms_worker.deliver_sms_distribution_message(SMS_MESSAGE)
+
+    assert marked_orders == [20]
+    assert result == {
+        "status": "delivered",
+        "db_to_channel_lag_seconds": 2,
+        "webhook_status_code": 202,
+    }
