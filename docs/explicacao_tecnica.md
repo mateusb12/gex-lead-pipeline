@@ -261,6 +261,20 @@ https://webhook.site/34ccfaf6-1193-49c9-9969-5677dd604b0f
 
 O fluxo principal está implementado com receiver, decrypt, schema, normalização, idempotência, publicação em filas, worker de leads, persistência relacional, retry, DLQs e distribuidor SMS mock.
 
+### Webhook.site e reprodutibilidade
+
+O canal SMS foi implementado contra `SMS_WEBHOOK_URL`, que aponta para uma URL do webhook.site.
+
+A URL usada durante o desenvolvimento serve como referência de validação, mas a correção do projeto não depende de uma URL fixa criada no dia da entrega. Como URLs gratuitas do webhook.site podem expirar ou parar de aceitar novas requests depois de um limite, o caminho reproduzível é o avaliador gerar uma URL nova e configurar no `.env`:
+
+```env
+SMS_WEBHOOK_URL=https://webhook.site/sua-url-aqui
+APP_ENV=production
+```
+
+Em `APP_ENV=dev`, se `SMS_WEBHOOK_URL` estiver vazia, o distribuidor SMS tenta gerar uma URL dinâmica automaticamente. Isso facilita o teste local sem exigir uma URL versionada e permanente.
+
+
 O que eu deixaria como evolução:
 
 - implementar distribuidores reais para EMAIL, CALL_CENTER e WHATSAPP;

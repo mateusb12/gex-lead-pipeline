@@ -48,12 +48,19 @@ docs/pictures/
   04-rabbit-lead-worker.png
 ```
 
+### Diagrama de arquitetura
+
+<p align="center">
+  <img src="docs/architecture.png" alt="Diagrama geral da arquitetura" width="900">
+</p>
+
 ### Artefatos de entrega
 
 - `docs/explicacao_tecnica.md`
 - `docs/audit_explains.md`
 - `docs/conceitual_parte_a.md`
 - `docs/conceitual_parte_b.md`
+- `docs/architecture.png`
 - `docs/evidencia_banco.md`, quando gerada com saídas reais do MySQL local
 - Loom: não versionado neste repositório
 
@@ -102,9 +109,9 @@ A gravação de `leads`, `orders` e `lead_events` é feita pela stored procedure
 
 ### 1. Preparar os arquivos do desafio
 
-Os arquivos recebidos no teste não ficam versionados no Git.
+Os arquivos recebidos no teste não ficam versionados no Git. Como o repositório é público, achei melhor não fazer isso, pois querendo ou não são dados sensíveis da GeX.
 
-Coloque os anexos em `assets/`:
+Você precisa colocar os anexos em `assets/`:
 
 ```text
 assets/
@@ -112,31 +119,35 @@ assets/
   grummer_secret.txt
 ```
 
-O decrypt do gateway `grummer` usa `GRUMMER_SECRET_HEX` quando definido. Se não estiver definido, o código lê `assets/grummer_secret.txt`.
+O decrypt do gateway `grummer` usa `GRUMMER_SECRET_HEX` quando definido nas variáveis de ambiente. Se não estiver definido, o código lê `assets/grummer_secret.txt`.
 
 ### 2. Configurar webhook.site
 
-Para rodar o distribuidor SMS em modo normal, informe uma URL do webhook.site:
+O distribuidor SMS usa a variável `SMS_WEBHOOK_URL`.
+
+Durante o desenvolvimento, eu usei uma URL do webhook.site para validar o POST real do SMS Worker. Essa URL é útil como referência, mas não deve ser tratada como dependência fixa da correção, porque URLs gratuitas do webhook.site podem expirar, perder retenção ou parar de aceitar novas requests depois de certo limite.
+
+Para validar localmente, gere uma URL nova em https://webhook.site e coloque no `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Edite o `.env` e configure:
+Configure:
 
 ```env
 SMS_WEBHOOK_URL=https://webhook.site/sua-url-aqui
 APP_ENV=production
 ```
 
-Para desenvolvimento local, também é possível usar:
+Em modo de desenvolvimento, também é possível usar:
 
 ```env
 APP_ENV=dev
 SMS_WEBHOOK_URL=
 ```
 
-Nesse modo, o worker de SMS tenta gerar uma URL do webhook.site automaticamente.
+Nesse modo, se `SMS_WEBHOOK_URL` estiver vazia, o worker de SMS tenta gerar uma URL dinâmica automaticamente para facilitar testes locais.
 
 ### 3. Subir tudo
 
