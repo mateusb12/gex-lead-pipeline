@@ -4,7 +4,7 @@
 
 Eu não usaria só `transaction_id` como chave de idempotência.
 
-`transaction_id` identifica o pedido dentro do gateway, mas não identifica sozinho o acontecimento de negócio. Um mesmo pedido pode ter uma vida útil com vários eventos diferentes.
+`transaction_id` identifica o pedido dentro do gateway, mas não identifica sozinho o acontecimento de negócio. Um mesmo pedido pode ter eventos diferentes ao longo do tempo.
 
 Exemplo:
 
@@ -28,21 +28,29 @@ transaction_id
 
 o `order.refunded` pode ser tratado como duplicado do `order.approved`. Isso seria errado, porque o refund é um evento novo e legítimo.
 
-A chave que eu usaria é:
+A chave natural do desafio é:
+
+```text
+transaction_id + event
+```
+
+Com isso, o comportamento fica assim:
+
+```text
+WHEY-123 + order.approved -> processa uma vez
+WHEY-123 + order.approved -> duplicate, não republica
+WHEY-123 + order.refunded -> outro evento, pode entrar
+```
+
+A inclusão do `event` permite que o mesmo pedido tenha uma vida útil. Ele pode ser aprovado, estornado ou recusado em momentos diferentes. O que não pode acontecer é a mesma combinação `transaction_id + event` gerar efeito colateral duas vezes.
+
+Na minha implementação, eu ainda incluo `gateway` na chave:
 
 ```text
 gateway + transaction_id + event
 ```
 
-Essa chave garante que a mesma transaction_id possa ter múltiplos eventos. Mas o mesmo evento duplicado continua impedido de existir. Com isso, o comportamento fica assim:
-
-```text
-lous + WHEY-123 + order.approved -> entra uma vez
-lous + WHEY-123 + order.refunded -> entra uma vez
-lous + WHEY-123 + order.approved -> se repetir, vira duplicate
-```
-
-Eu também incluo `gateway` porque não dá para assumir que todos os gateways usam o mesmo namespace de `transaction_id`.
+Faço isso porque não dá para assumir que todos os gateways usam o mesmo namespace de `transaction_id`.
 
 Exemplo:
 
@@ -51,29 +59,16 @@ lous    + WHEY-123 + order.approved
 grummer + WHEY-123 + order.approved
 ```
 
-Esses dois eventos podem representar vendas diferentes. Se eu não incluir o gateway na chave, posso marcar uma venda legítima como duplicada só porque dois provedores usaram o mesmo identificador.
+Esses dois eventos podem representar vendas diferentes. Sem `gateway`, eu posso marcar uma venda legítima como duplicada só porque dois provedores usaram o mesmo identificador.
 
-O trade-off é que essa chave protege a esteira contra duplicidade do mesmo evento, mas ela não resolve sozinha todos os casos de atualização de dados.
+O trade-off é que essa chave foi desenhada para eventos de negócio, não para registrar todas as tentativas de webhook.
 
-Se um gateway mandar o mesmo `order.approved` corrigido depois, por exemplo:
+A falha de usar só `transaction_id` é bloquear eventos legítimos do mesmo pedido.
 
-```text
-WHEY-123 + order.approved
-quantidade: 1
-amount_usd: 49.90
-```
+A falha de usar `transaction_id + event` seria se o negócio precisasse tratar duas ocorrências iguais do mesmo evento como coisas independentes. Mas esse não é o caso descrito no desafio. O próprio enunciado diz que cada combinação pedido + tipo de evento só pode existir uma vez.
 
-e depois:
+Então, para esse contexto, `transaction_id + event` é a chave correta. E `gateway + transaction_id + event` é a versão mais segura para a implementação, porque também evita colisão entre gateways diferentes.
 
-```text
-WHEY-123 + order.approved
-quantidade: 2
-amount_usd: 89.90
-```
-
-o sistema precisa decidir se aquilo é uma correção a ser absorvida ou uma duplicidade operacional que não deve gerar novo lead.
-
-Para este fluxo, eu priorizo não republicar o mesmo `order.approved` duas vezes. O pior erro aqui seria duplicar efeito colateral: mandar o mesmo lead duas vezes para SMS, e-mail, call center e WhatsApp.
 
 ## 2. Cripto
 
@@ -156,11 +151,11 @@ Exemplo:
 3 retries por mensagem
 ```
 
-Mesmo que tudo acabe indo para DLQ, antes disso o sistema gastou worker, conexão HTTP, tempo, CPU, memória, logs e fila tentando milhares de chamadas que provavelmente já estavam fadadas a falhar.
+Mesmo que tudo acabe indo para DLQ, antes disso o sistema gastou worker, conexão HTTP, tempo, CPU, memória, logs e fila tentando milhares de chamadas que provavelmente já iam falhar de qualquer forma.
 
 Eu trataria SMS como um canal com saúde própria.
 
-A política seria parecida com curva de fan de GPU:
+A política seria implementar um "healthcheck" parecida com curva de fan de GPU:
 
 ```text
 erro normal
