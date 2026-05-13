@@ -48,6 +48,15 @@ docs/pictures/
   04-rabbit-lead-worker.png
 ```
 
+### Artefatos de entrega
+
+- `docs/explicacao_tecnica.md`
+- `docs/audit_explains.md`
+- `docs/conceitual_parte_a.md`
+- `docs/conceitual_parte_b.md`
+- `docs/evidencia_banco.md`, quando gerada com saídas reais do MySQL local
+- Loom: não versionado neste repositório
+
 ### Testes
 
 ```text
